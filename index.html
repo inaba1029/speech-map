@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>街頭演説予約マップ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f5f2eb;--surface:#fff;--surface2:#f0ede6;--border:#d8d3c8;--text:#1a1814;--text-muted:#7a7468;--accent:#c8401a;--accent2:#2a5c9e;--green:#2d7a3a;--yellow:#b07a10;--red:#c8401a;--purple:#6d28d9;--radius:6px;--shadow:0 2px 12px rgba(0,0,0,.08)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+#loading-screen{position:fixed;inset:0;background:var(--bg);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+.loading-logo{font-family:'DM Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.1em}
+.loading-spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#login-screen{position:fixed;inset:0;background:var(--bg);z-index:9000;display:none;align-items:center;justify-content:center}
+#login-screen.show{display:flex}
+.login-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:36px 40px;width:100%;max-width:440px;box-shadow:var(--shadow)}
+.login-logo{font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);letter-spacing:.15em;text-transform:uppercase;margin-bottom:8px}
+.login-title{font-size:22px;font-weight:900;margin-bottom:4px;letter-spacing:-.02em}
+.login-sub{font-size:12px;color:var(--text-muted);margin-bottom:20px}
+.login-tabs{display:flex;gap:3px;background:var(--surface2);border-radius:var(--radius);padding:3px;margin-bottom:18px;flex-wrap:wrap}
+.login-tab{flex:1;min-width:70px;padding:7px 4px;text-align:center;font-size:11px;font-weight:700;border-radius:4px;cursor:pointer;color:var(--text-muted);transition:all .2s;white-space:nowrap}
+.login-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.form-group{margin-bottom:12px}
+.form-label{display:block;font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:4px;letter-spacing:.08em;text-transform:uppercase}
+.form-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;color:var(--text);font-family:'Noto Sans JP',sans-serif;font-size:13px;outline:none;transition:border-color .2s}
+.form-input:focus{border-color:var(--accent2)}
+select.form-input option{background:var(--surface)}
+.btn-login{width:100%;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);padding:11px;font-family:'Noto Sans JP',sans-serif;font-size:13px;font-weight:700;cursor:pointer;margin-top:4px;transition:opacity .2s}
+.btn-login:hover{opacity:.85}
+.btn-login:disabled{opacity:.5;cursor:not-allowed}
+.login-hint{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:11px 14px;font-size:11px;color:var(--text-muted);margin-top:12px;line-height:1.9}
+.login-hint b{color:var(--text)}
+.login-error{color:var(--red);font-size:12px;margin-top:6px;min-height:16px}
+header{background:var(--surface);border-bottom:2px solid var(--accent);padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:50px;flex-shrink:0;z-index:500}
+.header-left{display:flex;align-items:center;gap:10px}
+.logo{font-family:'DM Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em}
+.role-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:.04em;white-space:nowrap}
+.role-badge.admin{background:#fef3c7;color:#92400e;border:1px solid #fbbf24}
+.role-badge.party_admin{background:#ede9fe;color:var(--purple);border:1px solid #c4b5fd}
+.role-badge.candidate{background:#dbeafe;color:#1e40af;border:1px solid #93c5fd}
+.role-badge.public{background:var(--surface2);color:var(--text-muted);border:1px solid var(--border)}
+.header-user{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted)}
+.btn-logout{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;color:var(--text);font-family:'Noto Sans JP',sans-serif;transition:all .2s}
+.btn-logout:hover{border-color:var(--accent);color:var(--accent)}
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;padding:0 6px;gap:2px;overflow-x:auto}
+.tab{padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:var(--text-muted);transition:all .2s;white-space:nowrap}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab:hover:not(.active){color:var(--text)}
+.tab.hidden{display:none}
+.main{display:flex;flex:1;overflow:hidden}
+#map{flex:1;z-index:1}
+.sidebar{width:290px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+.sidebar-header{padding:11px 14px 9px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.1em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+.sidebar-content{flex:1;overflow-y:auto;padding:8px}
+.sidebar-content::-webkit-scrollbar{width:3px}
+.sidebar-content::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.legend{padding:9px 14px;border-top:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted)}
+.legend-dot{width:9px;height:9px;border-radius:50%}
+#map-view{display:flex;flex:1;overflow:hidden}
+#map-view.hidden{display:none}
+#list-view,#candidate-view,#admin-view,#party-admin-view{display:none;flex:1;overflow:hidden;flex-direction:column}
+#list-view.active,#candidate-view.active,#admin-view.active,#party-admin-view.active{display:flex}
+.view-wrap{flex:1;overflow-y:auto;padding:20px}
+.view-wrap::-webkit-scrollbar{width:4px}
+.view-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.view-inner{max-width:860px;margin:0 auto}
+.section-title{font-size:18px;font-weight:900;letter-spacing:-.02em;margin-bottom:4px}
+.section-sub{font-size:12px;color:var(--text-muted);margin-bottom:18px}
+.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+.res-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:9px 11px;margin-bottom:6px;cursor:pointer;transition:border-color .2s}
+.res-card:hover{border-color:var(--accent2)}
+.res-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:3px}
+.res-name{font-weight:700;font-size:13px}
+.res-party{font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;white-space:nowrap}
+.res-location{font-size:11px;color:var(--text-muted);margin-bottom:2px}
+.res-time{font-size:12px;color:var(--accent);font-family:'DM Mono',monospace}
+.list-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px;margin-bottom:7px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;transition:border-color .2s}
+.list-card:hover{border-color:var(--accent2)}
+.list-candidate{font-size:15px;font-weight:700}
+.list-party{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;font-weight:700;margin-top:3px}
+.list-meta{font-size:12px;color:var(--text-muted);margin-top:4px}
+.list-time{font-family:'DM Mono',monospace;font-size:14px;color:var(--accent);text-align:right}
+.list-date{font-size:11px;color:var(--text-muted);text-align:right;margin-top:2px}
+.status-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px}
+.status-badge.empty{background:#dcfce7;color:var(--green)}
+.status-badge.pending{background:#f3e8ff;color:var(--purple)}
+.status-badge.off{background:var(--surface2);color:var(--text-muted);border:1px solid var(--border)}
+.admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:13px;margin-bottom:18px}
+.admin-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.admin-card-title{font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.lottery-box{background:#fffbeb;border:1px solid #fbbf24;border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.lottery-title{font-size:13px;font-weight:700;color:#92400e;margin-bottom:10px}
+.lottery-result{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:10px}
+.lottery-result-header{padding:7px 13px;background:var(--surface2);font-size:11px;font-weight:700;color:var(--text-muted)}
+.lottery-result-item{padding:9px 13px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:12px}
+.winner-badge{background:#dcfce7;color:var(--green);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+.loser-badge{background:#fee2e2;color:var(--red);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+.alt-badge{background:#fef9c3;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+.data-table{width:100%;border-collapse:collapse;font-size:12px}
+.data-table th{text-align:left;padding:7px 10px;background:var(--surface2);font-size:10px;font-weight:700;color:var(--text-muted)}
+.data-table td{padding:8px 10px;border-top:1px solid var(--border);vertical-align:middle}
+.data-table tr:hover td{background:var(--surface2)}
+.cand-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.cand-section-title{font-size:13px;font-weight:700;margin-bottom:12px}
+.period-banner{background:#dbeafe;border:1px solid #93c5fd;border-radius:var(--radius);padding:9px 13px;font-size:12px;color:#1e40af;margin-bottom:12px}
+.period-banner.inactive{background:#fee2e2;border-color:#fca5a5;color:var(--red)}
+.lottery-schedule-banner{background:#fffbeb;border:1px solid #fbbf24;border-radius:var(--radius);padding:9px 13px;font-size:12px;color:#92400e;margin-bottom:12px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.pref-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.pref-item{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:5px 7px;transition:all .15s}
+.pref-item input{width:auto;background:none;border:none;padding:0;accent-color:var(--accent);cursor:pointer}
+.pref-item:has(input:checked){background:#fef3c7;border-color:#fbbf24}
+.btn{padding:7px 13px;border-radius:var(--radius);border:none;font-family:'Noto Sans JP',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;white-space:nowrap}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover:not(:disabled){opacity:.85}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover:not(:disabled){border-color:var(--accent2)}
+.btn-danger{background:#fee2e2;color:var(--red);border:1px solid #fca5a5}
+.btn-danger:hover:not(:disabled){background:#fca5a5}
+.btn-success{background:#dcfce7;color:var(--green);border:1px solid #86efac}
+.btn-success:hover:not(:disabled){background:#bbf7d0}
+.btn-purple{background:#ede9fe;color:var(--purple);border:1px solid #c4b5fd}
+.btn-purple:hover:not(:disabled){background:#c4b5fd}
+.btn-full{width:100%;padding:10px;font-size:13px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;align-items:center;justify-content:center;padding:16px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.2)}
+.modal-header{padding:14px 18px 11px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:sticky;top:0;background:var(--surface);z-index:1}
+.modal-title{font-size:15px;font-weight:700}
+.modal-sub{font-size:11px;color:var(--text-muted);margin-top:2px}
+.modal-close{background:var(--surface2);border:1px solid var(--border);color:var(--text);width:26px;height:26px;border-radius:5px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s}
+.modal-close:hover{background:var(--border)}
+.modal-body{padding:14px 18px}
+.modal-sec-title{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:9px;margin-top:14px}
+.modal-sec-title:first-child{margin-top:0}
+.slot-list{display:flex;flex-direction:column;gap:5px}
+.slot-item{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 11px;display:flex;align-items:center;justify-content:space-between;font-size:12px}
+.slot-name{font-weight:700}
+.slot-detail{font-size:10px;color:var(--text-muted);margin-top:1px}
+.slot-time{font-family:'DM Mono',monospace;font-size:11px;color:var(--accent)}
+.slot-empty{color:var(--text-muted);font-size:12px;font-style:italic;padding:5px 0}
+.slot-status{font-size:10px;font-weight:700;padding:2px 6px;border-radius:20px}
+.slot-status.confirmed{background:#dcfce7;color:var(--green)}
+.slot-status.pending{background:#f3e8ff;color:var(--purple)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);padding:9px 18px;border-radius:24px;font-weight:700;font-size:12px;z-index:9999;transition:transform .3s ease;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.15)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.toast.success{background:var(--green);color:#fff}
+.toast.error{background:var(--red);color:#fff}
+.toast.info{background:var(--accent2);color:#fff}
+.empty-state{text-align:center;padding:26px 20px;color:var(--text-muted)}
+.empty-state .icon{font-size:26px;margin-bottom:8px}
+.empty-state p{font-size:12px}
+.info-box{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 13px;font-size:12px;color:var(--text-muted);margin-bottom:12px}
+.custom-marker{width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.custom-marker.green{background:#2d7a3a}
+.custom-marker.yellow{background:#b07a10}
+.custom-marker.red{background:#c8401a}
+.custom-marker.grey{background:#9ca3af}
+.leaflet-tile{filter:saturate(.7) brightness(1.05)}
+@media(max-width:640px){.sidebar{display:none}.form-row{grid-template-columns:1fr}.pref-grid{grid-template-columns:repeat(3,1fr)}.admin-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div id="loading-screen">
+  <div class="loading-logo">📍 街頭演説予約マップ</div>
+  <div class="loading-spinner"></div>
+  <div style="font-size:12px;color:var(--text-muted)">データを読み込んでいます...</div>
+</div>
+
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">📍 街頭演説予約マップ</div>
+    <div class="login-title">ログイン</div>
+    <div class="login-sub">役割を選択してください</div>
+    <div class="login-tabs">
+      <div class="login-tab active" onclick="setLoginRole('public')">一般閲覧</div>
+      <div class="login-tab" onclick="setLoginRole('candidate')">候補者</div>
+      <div class="login-tab" onclick="setLoginRole('party_admin')">政党管理者</div>
+      <div class="login-tab" onclick="setLoginRole('admin')">総合管理者</div>
+    </div>
+    <div id="lf-public"><p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">ログイン不要で演説情報を閲覧できます。</p></div>
+    <div id="lf-candidate" style="display:none">
+      <div class="form-group"><label class="form-label">候補者ID</label><input class="form-input" id="li-cid" placeholder="例: cand001"></div>
+      <div class="form-group"><label class="form-label">パスワード</label><input class="form-input" type="password" id="li-cpw"></div>
+    </div>
+    <div id="lf-party_admin" style="display:none">
+      <div class="form-group"><label class="form-label">政党管理者ID</label><input class="form-input" id="li-paid" placeholder="例: party001"></div>
+      <div class="form-group"><label class="form-label">パスワード</label><input class="form-input" type="password" id="li-papw"></div>
+    </div>
+    <div id="lf-admin" style="display:none">
+      <div class="form-group"><label class="form-label">総合管理者ID</label><input class="form-input" id="li-aid" placeholder="admin"></div>
+      <div class="form-group"><label class="form-label">パスワード</label><input class="form-input" type="password" id="li-apw"></div>
+    </div>
+    <div class="login-error" id="login-error"></div>
+    <button class="btn-login" id="login-btn" onclick="doLogin()">ログイン →</button>
+    <div class="login-hint">
+      <b>デモ用アカウント</b><br>
+      総合管理者: admin / admin123<br>
+      政党管理者（チームみらい）: party001 / party123<br>
+      政党管理者（自由民主党）: party002 / party456<br>
+      安野たかひろ: cand001 / pass123 ／ 高市早苗: cand002 / pass456<br>
+      小川淳也: cand003 / pass789 ／ 吉村洋文: cand004 / pass000<br>
+      玉木雄一郎: cand005 / pass111 ／ 一般閲覧: ログイン不要
+    </div>
+  </div>
+</div>
+
+<header>
+  <div class="header-left">
+    <div class="logo">📍 街頭演説予約マップ</div>
+    <span class="role-badge" id="role-badge"></span>
+  </div>
+  <div class="header-user">
+    <span id="user-disp"></span>
+    <button class="btn-logout" onclick="doLogout()">ログアウト</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('map')">🗺️ マップ</div>
+  <div class="tab" onclick="switchTab('list')">📋 演説一覧</div>
+  <div class="tab hidden" id="tab-cand" onclick="switchTab('candidate')">🎤 候補者メニュー</div>
+  <div class="tab hidden" id="tab-party" onclick="switchTab('party-admin')">🏛️ 政党管理</div>
+  <div class="tab hidden" id="tab-admin" onclick="switchTab('admin')">⚙️ 総合管理</div>
+</div>
+
+<div id="map-view" class="main">
+  <div id="map"></div>
+  <div class="sidebar">
+    <div class="sidebar-header">予約一覧 <span id="res-count" style="color:var(--accent);font-family:'DM Mono',monospace">0</span></div>
+    <div class="sidebar-content" id="sidebar-list"></div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>空き</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div>混雑</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>満杯</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#9ca3af"></div>抽選待</div>
+    </div>
+  </div>
+</div>
+
+<div id="list-view">
+  <div class="view-wrap"><div class="view-inner">
+    <div class="section-title">演説一覧</div>
+    <div class="section-sub">登録されたすべての演説予約（新しい順）</div>
+    <div id="list-content"></div>
+  </div></div>
+</div>
+
+<div id="candidate-view">
+  <div class="view-wrap"><div class="view-inner">
+    <div id="cand-banner" class="period-banner">📅 選挙期間中</div>
+    <div id="lottery-schedule-banner" class="lottery-schedule-banner" style="display:none"></div>
+    <div class="section-title">候補者メニュー</div>
+    <div class="section-sub" id="cand-name-disp"></div>
+    <div class="cand-section">
+      <div class="cand-section-title">👤 候補者情報の登録・更新</div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">候補者名</label><input class="form-input" id="ci-name"></div>
+        <div class="form-group"><label class="form-label">政党名</label><input class="form-input" id="ci-party" readonly></div>
+      </div>
+      <button class="btn btn-primary" onclick="saveProfile()">保存する</button>
+    </div>
+    <div class="cand-section">
+      <div class="cand-section-title">📍 演説場所を予約する</div>
+      <div class="info-box">⏳ 予約はすべて「抽選待ち」で登録されます。抽選日時にくじ引きが行われ確定します。</div>
+      <div class="form-group"><label class="form-label">演説場所</label><select class="form-input" id="ci-spot"><option value="">選択してください</option></select></div>
+      <div class="form-group"><label class="form-label">日付</label><input class="form-input" type="date" id="ci-date"></div>
+      <div class="form-group"><label class="form-label">希望時間帯（最大3つ）</label><div class="pref-grid" id="ci-prefs"></div></div>
+      <button class="btn btn-primary btn-full" id="reserve-btn" onclick="candidateReserve()">📩 予約を申し込む（抽選待ち）</button>
+    </div>
+    <div class="cand-section">
+      <div class="cand-section-title">📋 自分の予約一覧</div>
+      <div id="my-reservations"></div>
+    </div>
+  </div></div>
+</div>
+
+<div id="party-admin-view">
+  <div class="view-wrap"><div class="view-inner">
+    <div class="section-title">政党管理者メニュー</div>
+    <div class="section-sub" id="party-name-disp"></div>
+    <div class="admin-card" style="margin-bottom:14px">
+      <div class="admin-card-title">👥 所属候補者一覧</div>
+      <div style="overflow-x:auto"><table class="data-table"><thead><tr><th>ID</th><th>PW</th><th>氏名</th><th>状態</th><th>操作</th></tr></thead><tbody id="party-users-tbody"></tbody></table></div>
+      <hr class="divider">
+      <div style="font-size:13px;font-weight:700;margin-bottom:11px">新規候補者を追加</div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">候補者ID</label><input class="form-input" id="pa-new-cid" placeholder="例: cand006"></div>
+        <div class="form-group"><label class="form-label">初期パスワード</label><input class="form-input" id="pa-new-cpw"></div>
+      </div>
+      <div class="form-group"><label class="form-label">候補者名</label><input class="form-input" id="pa-new-name"></div>
+      <button class="btn btn-primary" onclick="partyAddCandidate()">追加する</button>
+    </div>
+    <div class="admin-card">
+      <div class="admin-card-title">📋 所属候補者の予約状況</div>
+      <div id="party-res-list"></div>
+    </div>
+  </div></div>
+</div>
+
+<div id="admin-view">
+  <div class="view-wrap"><div class="view-inner">
+    <div class="section-title">総合管理者メニュー</div>
+    <div class="section-sub">選挙期間・抽選設定・全候補者・政党管理者の管理</div>
+    <div class="admin-grid">
+      <div class="admin-card">
+        <div class="admin-card-title">📅 選挙期間設定</div>
+        <div class="form-group"><label class="form-label">開始日</label><input class="form-input" type="date" id="ad-start"></div>
+        <div class="form-group"><label class="form-label">終了日</label><input class="form-input" type="date" id="ad-end"></div>
+        <button class="btn btn-primary btn-full" onclick="savePeriod()">設定する</button>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">🎲 抽選スケジュール設定</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">自動抽選</div>
+        <div class="form-group"><label class="form-label">実施タイミング</label>
+          <select class="form-input" id="lottery-timing"><option value="2">演説日の2日前 0:00</option><option value="3">演説日の3日前 0:00</option><option value="1">演説日の1日前 0:00</option></select></div>
+        <div class="form-group"><label class="form-label">対象演説日</label><input class="form-input" type="date" id="lottery-target-date"></div>
+        <div id="lottery-auto-status" style="font-size:12px;color:var(--text-muted);margin-bottom:8px;min-height:18px"></div>
+        <div style="display:flex;gap:8px;margin-bottom:4px">
+          <button class="btn btn-success" style="flex:1" onclick="scheduleLottery()">⏰ 自動抽選を予約</button>
+          <button class="btn btn-danger" style="flex:1" onclick="cancelSchedule()">✕ キャンセル</button>
+        </div>
+        <hr class="divider" style="margin:12px 0">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">手動抽選（即時）</div>
+        <button class="btn btn-primary btn-full" onclick="runLottery()">🎲 今すぐ抽選を実行</button>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">🗑️ データ管理</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">全予約データを削除します。</div>
+        <button class="btn btn-danger btn-full" onclick="clearAllData()">全データを削除する</button>
+      </div>
+    </div>
+    <div class="lottery-box" id="lottery-box" style="display:none"><div class="lottery-title">🎲 抽選結果</div><div id="lottery-content"></div></div>
+    <div class="admin-card" style="margin-bottom:14px">
+      <div class="admin-card-title">⚠️ バッティング一覧（抽選待ち）</div>
+      <div id="conflict-list"></div>
+    </div>
+    <div class="admin-card" style="margin-bottom:14px">
+      <div class="admin-card-title">🏛️ 政党管理者アカウント管理</div>
+      <div style="overflow-x:auto"><table class="data-table"><thead><tr><th>ID</th><th>PW</th><th>政党名</th><th>状態</th><th>操作</th></tr></thead><tbody id="party-admin-tbody"></tbody></table></div>
+      <hr class="divider">
+      <div style="font-size:13px;font-weight:700;margin-bottom:11px">新規政党管理者を追加</div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">管理者ID</label><input class="form-input" id="new-paid" placeholder="例: party003"></div>
+        <div class="form-group"><label class="form-label">初期パスワード</label><input class="form-input" id="new-papw"></div>
+      </div>
+      <div class="form-group"><label class="form-label">政党名</label><input class="form-input" id="new-party-name"></div>
+      <button class="btn btn-purple" onclick="addPartyAdmin()">政党管理者を追加</button>
+    </div>
+    <div class="admin-card">
+      <div class="admin-card-title">👥 全候補者一覧</div>
+      <div style="overflow-x:auto"><table class="data-table"><thead><tr><th>ID</th><th>PW</th><th>氏名</th><th>政党</th><th>状態</th><th>操作</th></tr></thead><tbody id="all-users-tbody"></tbody></table></div>
+    </div>
+  </div></div>
+</div>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div><div class="modal-title" id="modal-title"></div><div class="modal-sub" id="modal-sub"></div></div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-sec-title">予約状況</div>
+      <div class="slot-list" id="slot-list"></div>
+      <div id="modal-form"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div><div class="modal-title">候補者情報を編集</div></div>
+      <button class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-cand-id">
+      <div class="form-group"><label class="form-label">候補者名</label><input class="form-input" id="edit-name"></div>
+      <div class="form-group"><label class="form-label">パスワード変更（空欄で変更なし）</label><input class="form-input" type="password" id="edit-pw"></div>
+      <button class="btn btn-primary btn-full" style="margin-top:4px" onclick="saveEditCandidate()">保存する</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// =========================================================
+// SUPABASE
+// =========================================================
+const SUPABASE_URL='https://soqqhttlkhqjuwvfnbfo.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvcXFodHRsa2hxanV3dmZuYmZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MDY1NjAsImV4cCI6MjA4OTM4MjU2MH0.3gQ0HBBGdC_IRtALh4bTSJRmrrKKLUE6k0Pgmmb7wSo';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// =========================================================
+// CONSTANTS
+// =========================================================
+const TIME_SLOTS=['9:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
+const SPOTS=[
+  {id:1,name:'新宿駅西口',lat:35.6896,lng:139.6984,desc:'大型ターミナル・人流多'},
+  {id:2,name:'渋谷駅ハチ公前',lat:35.6580,lng:139.7016,desc:'若者層・夜も賑わう'},
+  {id:3,name:'池袋駅東口',lat:35.7295,lng:139.7109,desc:'北部エリアの要所'},
+  {id:4,name:'秋葉原駅前',lat:35.6984,lng:139.7731,desc:'独特の支持層'},
+  {id:5,name:'品川駅高輪口',lat:35.6284,lng:139.7387,desc:'ビジネス層・通勤客多'},
+  {id:6,name:'上野駅公園口',lat:35.7141,lng:139.7774,desc:'観光客・地元住民'},
+  {id:7,name:'有楽町駅前',lat:35.6751,lng:139.7629,desc:'銀座隣接・商業地帯'},
+  {id:8,name:'新橋駅SL広場',lat:35.6659,lng:139.7576,desc:'サラリーマン層'},
+  {id:9,name:'吉祥寺駅南口',lat:35.7027,lng:139.5797,desc:'住宅街・ファミリー層'},
+  {id:10,name:'立川駅北口',lat:35.6986,lng:139.4131,desc:'多摩地区の中心'},
+];
+
+// =========================================================
+// STATE
+// =========================================================
+let currentUser=null,loginRole='public';
+let allReservations=[],allUsers=[],electionPeriod={},lotterySchedules=[];
+let currentSpotId=null,map,markers={};
+
+// =========================================================
+// INIT
+// =========================================================
+async function initApp(){
+  try{
+    const[ur,rr,sr]=await Promise.all([
+      sb.from('users').select('*'),
+      sb.from('reservations').select('*').order('created_at',{ascending:false}),
+      sb.from('lottery_schedules').select('*').order('created_at',{ascending:false})
+    ]);
+    allUsers=ur.data||[];
+    allReservations=rr.data||[];
+    lotterySchedules=sr.data||[];
+    const pr=await sb.from('settings').select('value').eq('key','election_period').single();
+    electionPeriod=pr.data?.value||{};
+  }catch(e){console.error('DB Error',e);showToast('DB接続エラー','error');}
+  document.getElementById('loading-screen').style.display='none';
+  document.getElementById('login-screen').classList.add('show');
+  initMap();refreshMarkers();refreshSidebar();
+  checkAutoLottery();
+  setInterval(checkAutoLottery,60000);
+}
+
+// =========================================================
+// AUTH
+// =========================================================
+function setLoginRole(r){
+  loginRole=r;
+  ['public','candidate','party_admin','admin'].forEach((x,i)=>{
+    document.querySelectorAll('.login-tab')[i].classList.toggle('active',x===r);
+    document.getElementById('lf-'+x).style.display=x===r?'':'none';
+  });
+  document.getElementById('login-error').textContent='';
+}
+async function doLogin(){
+  const btn=document.getElementById('login-btn');
+  btn.disabled=true;btn.textContent='確認中...';
+  try{
+    let u=null;
+    if(loginRole==='public') u={id:'guest',role:'public',name:'一般利用者',party:''};
+    else if(loginRole==='admin'){const id=document.getElementById('li-aid').value.trim(),pw=document.getElementById('li-apw').value;u=allUsers.find(x=>x.id===id&&x.pw===pw&&x.role==='admin');}
+    else if(loginRole==='party_admin'){const id=document.getElementById('li-paid').value.trim(),pw=document.getElementById('li-papw').value;u=allUsers.find(x=>x.id===id&&x.pw===pw&&x.role==='party_admin'&&x.active);}
+    else{const id=document.getElementById('li-cid').value.trim(),pw=document.getElementById('li-cpw').value;u=allUsers.find(x=>x.id===id&&x.pw===pw&&x.role==='candidate'&&x.active);}
+    if(!u){document.getElementById('login-error').textContent='IDまたはパスワードが違います';return;}
+    currentUser=u;
+    document.getElementById('login-screen').classList.remove('show');
+    applyRole();switchTab('map');
+  }finally{btn.disabled=false;btn.textContent='ログイン →';}
+}
+function doLogout(){currentUser=null;document.getElementById('login-screen').classList.add('show');setLoginRole('public');}
+function applyRole(){
+  const r=currentUser.role;
+  const b=document.getElementById('role-badge');
+  b.textContent={admin:'総合管理者',party_admin:'政党管理者',candidate:'候補者',public:'一般閲覧'}[r];
+  b.className='role-badge '+r;
+  document.getElementById('user-disp').textContent=currentUser.name;
+  document.getElementById('tab-cand').classList.toggle('hidden',r!=='candidate');
+  document.getElementById('tab-party').classList.toggle('hidden',r!=='party_admin');
+  document.getElementById('tab-admin').classList.toggle('hidden',r!=='admin');
+}
+
+// =========================================================
+// MAP
+// =========================================================
+function initMap(){
+  if(map)return;
+  map=L.map('map').setView([35.6896,139.6984],12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+}
+function getColor(spotId){
+  const c=allReservations.filter(r=>r.spot_id===spotId&&r.status==='confirmed').length;
+  const p=allReservations.filter(r=>r.spot_id===spotId&&r.status==='pending').length;
+  if(c===0&&p===0)return'green';if(p>0&&c===0)return'grey';if(c<3)return'yellow';return'red';
+}
+function colorLabel(c){return{green:'空き',yellow:'混雑',red:'満杯',grey:'抽選待ち'}[c];}
+function makeIcon(c){return L.divIcon({className:'',html:`<div class="custom-marker ${c}"></div>`,iconSize:[26,26],iconAnchor:[13,26],popupAnchor:[0,-26]});}
+function refreshMarkers(){
+  SPOTS.forEach(s=>{
+    const c=getColor(s.id);
+    if(markers[s.id])markers[s.id].setIcon(makeIcon(c));
+    else{markers[s.id]=L.marker([s.lat,s.lng],{icon:makeIcon(c)}).addTo(map)
+      .bindTooltip(`<b>${s.name}</b><br><span style="font-size:11px">${colorLabel(c)}</span>`,{direction:'top'})
+      .on('click',()=>openModal(s.id));}
+  });
+}
+
+// =========================================================
+// MODAL
+// =========================================================
+function openModal(spotId){
+  currentSpotId=spotId;
+  const spot=SPOTS.find(s=>s.id===spotId);
+  document.getElementById('modal-title').textContent=spot.name;
+  document.getElementById('modal-sub').textContent=spot.desc;
+  const res=allReservations.filter(r=>r.spot_id===spotId);
+  document.getElementById('slot-list').innerHTML=res.length===0?'<div class="slot-empty">予約はまだありません</div>':
+    res.map(r=>`<div class="slot-item">
+      <div><div class="slot-name">${r.name}</div><div class="slot-detail">${r.party} ・ ${r.date}</div></div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="slot-time">${r.assigned||'未確定'}</span>
+        <span class="slot-status ${r.status==='confirmed'?'confirmed':'pending'}">${r.status==='confirmed'?'確定':'抽選待'}</span>
+      </div></div>`).join('');
+  const mf=document.getElementById('modal-form');
+  if(currentUser?.role==='candidate'){
+    const today=new Date().toISOString().split('T')[0];
+    mf.innerHTML=`<div class="modal-sec-title">新規予約（抽選待ちで登録）</div>
+      <div class="form-group"><label class="form-label">日付</label><input class="form-input" type="date" id="m-date" value="${today}"></div>
+      <div class="form-group"><label class="form-label">希望時間帯（最大3つ）</label>
+        <div class="pref-grid">${TIME_SLOTS.map(t=>`<label class="pref-item"><input type="checkbox" value="${t}"> ${t}</label>`).join('')}</div>
+      </div>
+      <button class="btn btn-primary btn-full" style="margin-top:10px" onclick="submitFromModal()">📩 申し込む</button>`;
+  }else{
+    mf.innerHTML=(!currentUser||currentUser.role==='public')?`<div class="info-box" style="margin-top:12px">予約には候補者アカウントでのログインが必要です</div>`:'';
+  }
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal(){document.getElementById('modal').classList.remove('open');currentSpotId=null;}
+document.getElementById('modal').addEventListener('click',e=>{if(e.target===document.getElementById('modal'))closeModal();});
+async function submitFromModal(){
+  const date=document.getElementById('m-date').value;
+  const prefs=[...document.querySelectorAll('#modal .pref-item input:checked')].map(c=>c.value);
+  if(!date||prefs.length===0){showToast('日付と時間帯を選択してください','error');return;}
+  if(prefs.length>3){showToast('希望は最大3つです','error');return;}
+  await doReserve(currentSpotId,date,prefs);closeModal();
+}
+
+// =========================================================
+// RESERVE
+// =========================================================
+async function doReserve(spotId,date,prefs){
+  if(!currentUser||currentUser.role!=='candidate'){showToast('候補者としてログインが必要です','error');return;}
+  if(allReservations.find(r=>r.spot_id===spotId&&r.date===date&&r.cand_id===currentUser.id)){showToast('同じ日・場所への重複予約はできません','error');return;}
+  if(allReservations.filter(r=>r.date===date&&r.cand_id===currentUser.id).length>=5){showToast('同日の予約は最大5か所までとさせていただいております','error');return;}
+  const u=allUsers.find(x=>x.id===currentUser.id);
+  const btn=document.getElementById('reserve-btn');if(btn)btn.disabled=true;
+  try{
+    const{data,error}=await sb.from('reservations').insert({spot_id:spotId,cand_id:currentUser.id,name:u?.name||currentUser.name,party:u?.party||'',date,prefs,assigned:null,status:'pending'}).select().single();
+    if(error)throw error;
+    allReservations.unshift(data);refreshAll();
+    showToast('⏳ 抽選待ちで登録しました','info');
+  }catch(e){showToast('登録に失敗しました: '+e.message,'error');}
+  finally{if(btn)btn.disabled=false;}
+}
+
+// =========================================================
+// LOTTERY LOGIC
+// =========================================================
+function _execLottery(res,pending){
+  const results=[],groups={};
+  pending.forEach(r=>r.prefs.forEach(p=>{const k=`${r.spot_id}_${r.date}_${p}`;(groups[k]=groups[k]||[]).push(r);}));
+  const done=new Set(),candWon={};
+  Object.entries(groups).forEach(([key,entries])=>{
+    const uniq=entries.filter(e=>!done.has(e.id));if(uniq.length===0)return;
+    const[sid,date,slot]=key.split('_'),spotId=parseInt(sid);
+    const spotName=SPOTS.find(s=>s.id===spotId)?.name||'',slotKey=`${date}_${slot}`;
+    if(uniq.length===1){
+      const r=uniq[0],ck=`${r.cand_id}_${slotKey}`;
+      if(!done.has(r.id)&&!candWon[ck]){r.assigned=slot;r.status='confirmed';done.add(r.id);candWon[ck]=true;results.push({name:r.name,party:r.party,slot,spotName,result:'win'});}
+      else{r.status='no_slot';done.add(r.id);results.push({name:r.name,party:r.party,slot,spotName,result:'lose'});}
+      return;
+    }
+    const shuffled=[...uniq].sort(()=>Math.random()-.5);
+    const eligible=shuffled.filter(r=>!candWon[`${r.cand_id}_${slotKey}`]);
+    const ineligible=shuffled.filter(r=>candWon[`${r.cand_id}_${slotKey}`]);
+    const winner=eligible[0];
+    if(winner&&!done.has(winner.id)){const ck=`${winner.cand_id}_${slotKey}`;winner.assigned=slot;winner.status='confirmed';done.add(winner.id);candWon[ck]=true;results.push({name:winner.name,party:winner.party,slot,spotName,result:'win'});}
+    [...(eligible.slice(1)),...ineligible].forEach(loser=>{
+      if(done.has(loser.id))return;
+      const taken=res.filter(r=>r.spot_id===spotId&&r.date===date&&r.status==='confirmed').map(r=>r.assigned);
+      const alt=loser.prefs.filter(p=>p!==slot&&!taken.includes(p)&&!candWon[`${loser.cand_id}_${date}_${p}`]).find(()=>true);
+      if(alt){loser.assigned=alt;loser.status='confirmed';candWon[`${loser.cand_id}_${date}_${alt}`]=true;results.push({name:loser.name,party:loser.party,slot:alt,spotName,result:'alt'});}
+      else{loser.status='no_slot';results.push({name:loser.name,party:loser.party,slot,spotName,result:'lose'});}
+      done.add(loser.id);
+    });
+  });
+  return results;
+}
+async function runLottery(){
+  const pending=allReservations.filter(r=>r.status==='pending');
+  if(pending.length===0){showToast('抽選待ちの予約はありません','info');document.getElementById('lottery-box').style.display='none';return;}
+  const results=_execLottery(allReservations,pending)||[];
+  for(const r of pending){await sb.from('reservations').update({assigned:r.assigned,status:r.status}).eq('id',r.id);}
+  const{data}=await sb.from('reservations').select('*').order('created_at',{ascending:false});
+  allReservations=data||[];
+  refreshAll();showLotteryResults(results);
+  showToast(`🎲 抽選完了！${results.length}件処理しました`,'success');
+}
+function showLotteryResults(results){
+  const box=document.getElementById('lottery-box');box.style.display='';
+  document.getElementById('lottery-content').innerHTML=`<div class="lottery-result">
+    <div class="lottery-result-header">候補者 ／ 政党 ／ 場所 ／ 時間帯 ／ 結果</div>
+    ${results.length===0?'<div style="padding:12px 14px;font-size:12px;color:var(--text-muted)">処理なし</div>':
+    results.map(r=>`<div class="lottery-result-item">
+      <div><b>${r.name}</b> <span style="font-size:11px;color:var(--text-muted)">${r.party}</span><br>
+      <span style="font-size:11px;color:var(--text-muted)">${r.spotName} ${r.slot}</span></div>
+      ${r.result==='win'?'<span class="winner-badge">🎉 当選</span>':r.result==='alt'?'<span class="alt-badge">代替スロット</span>':'<span class="loser-badge">落選</span>'}
+    </div>`).join('')}
+  </div>`;
+}
+
+// =========================================================
+// LOTTERY SCHEDULE
+// =========================================================
+async function scheduleLottery(){
+  const timing=parseInt(document.getElementById('lottery-timing').value);
+  const targetDate=document.getElementById('lottery-target-date').value;
+  if(!targetDate){showToast('対象演説日を入力してください','error');return;}
+  if(lotterySchedules.find(s=>s.target_date===targetDate&&s.status==='waiting')){showToast('この演説日はすでにスケジュール済みです','error');return;}
+  const d=new Date(targetDate+'T00:00:00');d.setDate(d.getDate()-timing);
+  const execDateTime=d.toISOString().split('T')[0]+'T00:00:00';
+  const{data,error}=await sb.from('lottery_schedules').insert({target_date:targetDate,exec_datetime:execDateTime,timing,status:'waiting'}).select().single();
+  if(error){showToast('登録に失敗しました','error');return;}
+  lotterySchedules.unshift(data);refreshAdminView();
+  showToast(`✅ ${execDateTime.split('T')[0]} 0:00 に自動抽選を予約しました`,'success');
+}
+async function cancelSchedule(){
+  const targetDate=document.getElementById('lottery-target-date').value;
+  if(!targetDate){showToast('演説日を選択してください','error');return;}
+  await sb.from('lottery_schedules').delete().eq('target_date',targetDate).eq('status','waiting');
+  lotterySchedules=lotterySchedules.filter(s=>!(s.target_date===targetDate&&s.status==='waiting'));
+  refreshAdminView();showToast('スケジュールをキャンセルしました','info');
+}
+async function checkAutoLottery(){
+  const now=new Date();
+  for(const s of lotterySchedules.filter(x=>x.status==='waiting')){
+    if(now>=new Date(s.exec_datetime)){
+      const pending=allReservations.filter(r=>r.status==='pending'&&r.date===s.target_date);
+      if(pending.length>0){
+        _execLottery(allReservations,pending);
+        for(const r of pending)await sb.from('reservations').update({assigned:r.assigned,status:r.status}).eq('id',r.id);
+        const{data}=await sb.from('reservations').select('*').order('created_at',{ascending:false});
+        allReservations=data||[];
+      }
+      await sb.from('lottery_schedules').update({status:'done'}).eq('id',s.id);
+      s.status='done';refreshAll();
+      showToast(`🎲 ${s.target_date} の自動抽選を実行しました`,'success');
+    }
+  }
+}
+
+// =========================================================
+// ADMIN
+// =========================================================
+async function savePeriod(){
+  const s=document.getElementById('ad-start').value,e=document.getElementById('ad-end').value;
+  if(!s||!e){showToast('日付を入力してください','error');return;}
+  electionPeriod={start:s,end:e,active:true};
+  await sb.from('settings').upsert({key:'election_period',value:electionPeriod});
+  showToast('選挙期間を設定しました','success');refreshCandidateView();
+}
+async function clearAllData(){
+  if(!confirm('全予約データを削除しますか？'))return;
+  await sb.from('reservations').delete().neq('id',0);
+  allReservations=[];refreshAll();showToast('データを削除しました','info');
+}
+async function addPartyAdmin(){
+  const id=document.getElementById('new-paid').value.trim(),pw=document.getElementById('new-papw').value.trim(),party=document.getElementById('new-party-name').value.trim();
+  if(!id||!pw||!party){showToast('すべての項目を入力してください','error');return;}
+  if(allUsers.find(u=>u.id===id)){showToast('そのIDはすでに存在します','error');return;}
+  const{data,error}=await sb.from('users').insert({id,pw,role:'party_admin',name:party+'管理者',party,active:true}).select().single();
+  if(error){showToast('追加に失敗しました: '+error.message,'error');return;}
+  allUsers.push(data);refreshAdminView();
+  document.getElementById('new-paid').value='';document.getElementById('new-papw').value='';document.getElementById('new-party-name').value='';
+  showToast('政党管理者を追加しました','success');
+}
+async function toggleActive(id){
+  const u=allUsers.find(x=>x.id===id);if(!u)return;
+  u.active=!u.active;await sb.from('users').update({active:u.active}).eq('id',id);
+  refreshAdminView();refreshPartyAdminView();showToast(u.active?'有効化しました':'無効化しました','info');
+}
+async function deleteCand(id){
+  if(!confirm(`${id} を削除しますか？`))return;
+  await sb.from('users').delete().eq('id',id);
+  allUsers=allUsers.filter(u=>u.id!==id);
+  refreshAdminView();refreshPartyAdminView();showToast('削除しました','info');
+}
+async function deleteRes(id){
+  if(!confirm('この予約を削除しますか？'))return;
+  await sb.from('reservations').delete().eq('id',id);
+  allReservations=allReservations.filter(r=>r.id!==id);
+  refreshAll();showToast('削除しました','info');
+}
+
+// =========================================================
+// PARTY ADMIN
+// =========================================================
+async function partyAddCandidate(){
+  const id=document.getElementById('pa-new-cid').value.trim(),pw=document.getElementById('pa-new-cpw').value.trim(),name=document.getElementById('pa-new-name').value.trim();
+  if(!id||!pw||!name){showToast('すべての項目を入力してください','error');return;}
+  if(allUsers.find(u=>u.id===id)){showToast('そのIDはすでに存在します','error');return;}
+  const{data,error}=await sb.from('users').insert({id,pw,role:'candidate',name,party:currentUser.party,active:true}).select().single();
+  if(error){showToast('追加に失敗しました: '+error.message,'error');return;}
+  allUsers.push(data);refreshPartyAdminView();
+  document.getElementById('pa-new-cid').value='';document.getElementById('pa-new-cpw').value='';document.getElementById('pa-new-name').value='';
+  showToast('候補者を追加しました','success');
+}
+async function partyToggleActive(id){
+  const u=allUsers.find(x=>x.id===id);if(!u||u.party!==currentUser.party){showToast('操作できません','error');return;}
+  u.active=!u.active;await sb.from('users').update({active:u.active}).eq('id',id);
+  refreshPartyAdminView();showToast(u.active?'有効化しました':'無効化しました','info');
+}
+async function partyDeleteCand(id){
+  const u=allUsers.find(x=>x.id===id);if(!u||u.party!==currentUser.party){showToast('操作できません','error');return;}
+  if(!confirm(`${u.name} を削除しますか？`))return;
+  await sb.from('users').delete().eq('id',id);
+  allUsers=allUsers.filter(x=>x.id!==id);refreshPartyAdminView();showToast('削除しました','info');
+}
+function openEditModal(id){
+  const u=allUsers.find(x=>x.id===id);if(!u)return;
+  document.getElementById('edit-cand-id').value=id;document.getElementById('edit-name').value=u.name;document.getElementById('edit-pw').value='';
+  document.getElementById('edit-modal').classList.add('open');
+}
+function closeEditModal(){document.getElementById('edit-modal').classList.remove('open');}
+document.getElementById('edit-modal').addEventListener('click',e=>{if(e.target===document.getElementById('edit-modal'))closeEditModal();});
+async function saveEditCandidate(){
+  const id=document.getElementById('edit-cand-id').value,name=document.getElementById('edit-name').value.trim(),pw=document.getElementById('edit-pw').value.trim();
+  if(!name){showToast('候補者名を入力してください','error');return;}
+  const upd={name};if(pw)upd.pw=pw;
+  const{error}=await sb.from('users').update(upd).eq('id',id);
+  if(error){showToast('保存に失敗しました','error');return;}
+  const u=allUsers.find(x=>x.id===id);if(u){u.name=name;if(pw)u.pw=pw;}
+  closeEditModal();refreshPartyAdminView();showToast('保存しました','success');
+}
+
+// =========================================================
+// CANDIDATE
+// =========================================================
+async function saveProfile(){
+  const name=document.getElementById('ci-name').value.trim();
+  if(!name){showToast('候補者名を入力してください','error');return;}
+  const{error}=await sb.from('users').update({name}).eq('id',currentUser.id);
+  if(error){showToast('保存に失敗しました','error');return;}
+  const u=allUsers.find(x=>x.id===currentUser.id);if(u)u.name=name;
+  currentUser.name=name;document.getElementById('user-disp').textContent=name;
+  showToast('保存しました','success');
+}
+async function candidateReserve(){
+  const spotId=parseInt(document.getElementById('ci-spot').value),date=document.getElementById('ci-date').value;
+  const prefs=[...document.querySelectorAll('#ci-prefs input:checked')].map(c=>c.value);
+  if(!spotId||!date||prefs.length===0){showToast('すべての項目を入力してください','error');return;}
+  if(prefs.length>3){showToast('希望は最大3つです','error');return;}
+  await doReserve(spotId,date,prefs);refreshCandidateView();
+}
+async function deleteMyRes(id){
+  const r=allReservations.find(x=>x.id===id);
+  if(!r||r.cand_id!==currentUser.id){showToast('削除できません','error');return;}
+  if(r.status==='confirmed'){showToast('確定済みの予約は削除できません','error');return;}
+  if(!confirm('この予約を削除しますか？'))return;
+  await sb.from('reservations').delete().eq('id',id);
+  allReservations=allReservations.filter(x=>x.id!==id);refreshAll();showToast('削除しました','info');
+}
+
+// =========================================================
+// REFRESH
+// =========================================================
+function refreshAll(){
+  refreshMarkers();refreshSidebar();
+  if(document.getElementById('list-view').classList.contains('active'))refreshListView();
+  if(document.getElementById('admin-view').classList.contains('active'))refreshAdminView();
+  if(document.getElementById('candidate-view').classList.contains('active'))refreshCandidateView();
+  if(document.getElementById('party-admin-view').classList.contains('active'))refreshPartyAdminView();
+}
+function refreshSidebar(){
+  document.getElementById('res-count').textContent=allReservations.length;
+  const el=document.getElementById('sidebar-list');
+  if(!allReservations.length){el.innerHTML='<div class="empty-state"><div class="icon">📍</div><p>マップのピンをクリック</p></div>';return;}
+  el.innerHTML=allReservations.slice(0,20).map(r=>{const s=SPOTS.find(x=>x.id===r.spot_id);if(!s)return'';return`
+    <div class="res-card" onclick="map&&map.setView([${s.lat},${s.lng}],14);openModal(${s.id})">
+      <div class="res-card-header"><div class="res-name">${r.name}</div><div class="res-party">${r.party}</div></div>
+      <div class="res-location">📍 ${s.name}</div>
+      <div class="res-time">${r.assigned||'抽選待ち'}</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${r.date} ／ <span class="status-badge ${r.status==='confirmed'?'empty':'pending'}">${r.status==='confirmed'?'確定':'抽選待'}</span></div>
+    </div>`;}).join('');
+}
+function refreshListView(){
+  const el=document.getElementById('list-content');
+  if(!allReservations.length){el.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>予約がまだありません</p></div>';return;}
+  el.innerHTML=allReservations.map(r=>{const s=SPOTS.find(x=>x.id===r.spot_id);if(!s)return'';return`
+    <div class="list-card">
+      <div><div class="list-candidate">${r.name}</div><span class="list-party">${r.party}</span>
+      <div class="list-meta">📍 ${s.name}</div>
+      <span class="status-badge ${r.status==='confirmed'?'empty':'pending'}">${r.status==='confirmed'?'確定':'抽選待ち'}</span></div>
+      <div><div class="list-time">${r.assigned||'未確定'}</div><div class="list-date">${r.date}</div></div>
+    </div>`;}).join('');
+}
+function refreshAdminView(){
+  if(electionPeriod.start)document.getElementById('ad-start').value=electionPeriod.start;
+  if(electionPeriod.end)document.getElementById('ad-end').value=electionPeriod.end;
+  const pw=u=>`<code style="font-size:11px;font-family:'DM Mono',monospace;background:var(--surface2);padding:2px 6px;border-radius:4px">${u.pw}</code>`;
+  const cd=u=>`<code style="font-size:11px;font-family:'DM Mono',monospace">${u.id}</code>`;
+  document.getElementById('party-admin-tbody').innerHTML=allUsers.filter(u=>u.role==='party_admin').map(u=>`
+    <tr><td>${cd(u)}</td><td>${pw(u)}</td><td>${u.party}</td>
+    <td><span class="status-badge ${u.active?'empty':'off'}">${u.active?'有効':'無効'}</span></td>
+    <td style="display:flex;gap:4px">
+      <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px" onclick="toggleActive('${u.id}')">${u.active?'無効化':'有効化'}</button>
+      <button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteCand('${u.id}')">削除</button>
+    </td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:12px">なし</td></tr>';
+  document.getElementById('all-users-tbody').innerHTML=allUsers.filter(u=>u.role==='candidate').map(u=>`
+    <tr><td>${cd(u)}</td><td>${pw(u)}</td><td>${u.name}</td><td>${u.party||'—'}</td>
+    <td><span class="status-badge ${u.active?'empty':'off'}">${u.active?'有効':'無効'}</span></td>
+    <td style="display:flex;gap:4px">
+      <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px" onclick="toggleActive('${u.id}')">${u.active?'無効化':'有効化'}</button>
+      <button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteCand('${u.id}')">削除</button>
+    </td></tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:12px">候補者なし</td></tr>';
+  const pending=allReservations.filter(r=>r.status==='pending');
+  document.getElementById('conflict-list').innerHTML=pending.length===0
+    ?'<div style="font-size:12px;color:var(--text-muted)">抽選待ちの予約はありません</div>'
+    :`<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>候補者</th><th>政党</th><th>場所</th><th>日付</th><th>希望時間</th><th>操作</th></tr></thead><tbody>
+    ${pending.map(r=>{const s=SPOTS.find(x=>x.id===r.spot_id);return`<tr><td>${r.name}</td><td>${r.party}</td><td>${s?.name}</td><td>${r.date}</td><td>${r.prefs.join(', ')}</td>
+    <td><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteRes(${r.id})">削除</button></td></tr>`;}).join('')}
+    </tbody></table></div>`;
+  const waiting=lotterySchedules.filter(s=>s.status==='waiting');
+  const se=document.getElementById('lottery-auto-status');
+  if(se)se.innerHTML=waiting.length===0?'<span style="color:var(--text-muted)">予約中の自動抽選はありません</span>':
+    waiting.map(s=>`<span style="color:var(--green);font-weight:700">⏰ ${s.target_date} の演説 → ${s.exec_datetime.split('T')[0]} 0:00 自動抽選予定</span>`).join('<br>');
+}
+function refreshPartyAdminView(){
+  const myParty=currentUser.party;
+  document.getElementById('party-name-disp').textContent=`${myParty} の候補者・予約を管理します`;
+  const myCands=allUsers.filter(u=>u.role==='candidate'&&u.party===myParty);
+  const pw=u=>`<code style="font-size:11px;font-family:'DM Mono',monospace;background:var(--surface2);padding:2px 6px;border-radius:4px">${u.pw}</code>`;
+  document.getElementById('party-users-tbody').innerHTML=myCands.map(u=>`
+    <tr><td><code style="font-size:11px;font-family:'DM Mono',monospace">${u.id}</code></td><td>${pw(u)}</td><td>${u.name}</td>
+    <td><span class="status-badge ${u.active?'empty':'off'}">${u.active?'有効':'無効'}</span></td>
+    <td style="display:flex;gap:4px">
+      <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px" onclick="openEditModal('${u.id}')">編集</button>
+      <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px" onclick="partyToggleActive('${u.id}')">${u.active?'無効化':'有効化'}</button>
+      <button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="partyDeleteCand('${u.id}')">削除</button>
+    </td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:12px">所属候補者なし</td></tr>';
+  const myRes=allReservations.filter(r=>myCands.find(c=>c.id===r.cand_id));
+  document.getElementById('party-res-list').innerHTML=myRes.length===0?'<div style="font-size:12px;color:var(--text-muted)">予約なし</div>':
+    myRes.map(r=>{const s=SPOTS.find(x=>x.id===r.spot_id);return`
+      <div class="list-card">
+        <div><div class="list-candidate">${r.name}</div><span class="list-party">${r.party}</span>
+        <div class="list-meta">📍 ${s?.name} ／ ${r.date} ／ 希望: ${r.prefs.join(', ')}</div>
+        <span class="status-badge ${r.status==='confirmed'?'empty':'pending'}">${r.status==='confirmed'?'確定':'抽選待ち'}</span></div>
+        <div><div class="list-time">${r.assigned||'未確定'}</div></div>
+      </div>`;}).join('');
+}
+function refreshCandidateView(){
+  const u=allUsers.find(x=>x.id===currentUser?.id);
+  if(u){document.getElementById('ci-name').value=u.name||'';document.getElementById('ci-party').value=u.party||'';
+    document.getElementById('cand-name-disp').textContent=`${u.name}（${u.party}）`;}
+  document.getElementById('ci-spot').innerHTML='<option value="">選択してください</option>'+SPOTS.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  document.getElementById('ci-prefs').innerHTML=TIME_SLOTS.map(t=>`<label class="pref-item"><input type="checkbox" value="${t}"> ${t}</label>`).join('');
+  document.getElementById('ci-date').value=new Date().toISOString().split('T')[0];
+  const banner=document.getElementById('cand-banner');
+  if(electionPeriod.start&&electionPeriod.end){banner.textContent=`📅 選挙期間: ${electionPeriod.start} 〜 ${electionPeriod.end}`;banner.className='period-banner';}
+  else{banner.textContent='⚠️ 選挙期間が設定されていません';banner.className='period-banner inactive';}
+  const waiting=lotterySchedules.filter(s=>s.status==='waiting');
+  const lb=document.getElementById('lottery-schedule-banner');
+  if(waiting.length>0){lb.style.display='';lb.textContent='🎲 抽選予定: '+waiting.map(s=>`${s.target_date} → ${s.exec_datetime.split('T')[0]} 0:00`).join('、');}
+  else lb.style.display='none';
+  const myRes=allReservations.filter(r=>r.cand_id===currentUser?.id);
+  document.getElementById('my-reservations').innerHTML=myRes.length===0
+    ?'<div class="empty-state"><div class="icon">📋</div><p>まだ予約がありません</p></div>'
+    :myRes.map(r=>{const s=SPOTS.find(x=>x.id===r.spot_id);return`
+      <div class="list-card">
+        <div><div style="font-weight:700">${s?.name}</div>
+        <div class="list-meta">${r.date} ／ 希望: ${r.prefs.join(', ')}</div>
+        <span class="status-badge ${r.status==='confirmed'?'empty':'pending'}">${r.status==='confirmed'?'確定':'抽選待ち'}</span></div>
+        <div><div class="list-time">${r.assigned||'未確定'}</div>
+        ${r.status!=='confirmed'?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px;margin-top:5px" onclick="deleteMyRes(${r.id})">削除</button>`:''}
+        </div></div>`;}).join('');
+}
+
+// =========================================================
+// TAB SWITCH
+// =========================================================
+function switchTab(tab){
+  const names=['map','list','candidate','party-admin','admin'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===tab));
+  document.getElementById('map-view').classList.toggle('hidden',tab!=='map');
+  ['list','candidate','party-admin','admin'].forEach(t=>document.getElementById(t+'-view').classList.toggle('active',t===tab));
+  if(tab==='map')setTimeout(()=>map&&map.invalidateSize(),50);
+  if(tab==='list')refreshListView();
+  if(tab==='admin')refreshAdminView();
+  if(tab==='candidate')refreshCandidateView();
+  if(tab==='party-admin')refreshPartyAdminView();
+}
+
+// =========================================================
+// TOAST
+// =========================================================
+function showToast(msg,type='success'){
+  const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type}`;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3200);
+}
+
+window.addEventListener('DOMContentLoaded',initApp);
+</script>
+</body>
+</html>

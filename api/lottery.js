@@ -46,9 +46,9 @@ export default async function handler(req, res) {
     if (!sched) return res.status(404).json({ error: 'schedule not found' });
     if (sched.status === 'done') return res.status(409).json({ error: 'already executed' });
     if (sched.target_date !== target_date) return res.status(400).json({ error: 'target_date mismatch' });
-    if (sched.exec_datetime && new Date(sched.exec_datetime) > new Date()) {
-      return res.status(425).json({ error: 'schedule not due yet' });
-    }
+    // 実行時刻の前倒しチェックはタイムゾーン差（クライアント=JST / サーバー=UTC）で
+    // 正規の自動抽選を誤って弾くため設けない。発火タイミングはクライアントのタイマーに委ねる。
+    // 認証・スケジュール実在・status・target_date 整合の各チェックで十分に保護される。
   }
 
   async function sbGet(path) {

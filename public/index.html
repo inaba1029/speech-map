@@ -1715,6 +1715,24 @@ async function initSupabase(){
   sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 }
 
+// XSS対策：innerHTMLに差し込む前にHTML特殊文字をエスケープする
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// XSS対策：onclick等のHTML属性内に置くJS文字列リテラル用（バックスラッシュ・引用符も無害化）
+function jsAttr(s){
+  return escapeHtml(String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"));
+}
+
+// サーバーAPI(/api/*)呼び出し用の認証ヘッダ。ログイン中のSupabase Authトークンを付与する。
+async function authHeader(){
+  try{
+    const{data}=await sb.auth.getSession();
+    const t=data?.session?.access_token;
+    return t?{'Authorization':'Bearer '+t}:{};
+  }catch(e){return{};}
+}
+
 // =========================================================
 // CONSTANTS
 // =========================================================
@@ -2218,13 +2236,11 @@ async function initApp(){
 async function renderLoginAccountTable(){
   const el=document.getElementById('login-account-table');
   if(!el)return;
-  // パスワードを含む全ユーザー情報をDBから取得
+  // 表示に必要な情報のみ取得（パスワードハッシュはブラウザに渡さない）
   const{data:usersWithPw}=await sb.from('users').select('id,role,name,party,active').neq('role','public');
-  const{data:pwRows}=await sb.from('user_passwords').select('user_id,pw');
-  const pwMapLogin=Object.fromEntries((pwRows||[]).map(r=>[r.user_id,r.pw]));
   if(!usersWithPw){el.innerHTML='<div style="color:var(--text-muted)">読み込めませんでした</div>';return;}
   const roleLabel={admin:'総合管理者',party_admin:'政党管理者',candidate:'候補者'};
-  const users=usersWithPw.filter(u=>u.role!=='public').map(u=>({...u,pw:pwMapLogin[u.id]||'—'}));
+  const users=usersWithPw.filter(u=>u.role!=='public');
   const rowHtml=[];
   // 総合管理者・政党管理者（ID=ローマ字の五十音順）
   ['admin','party_admin'].forEach(role=>{
@@ -2232,7 +2248,7 @@ async function renderLoginAccountTable(){
       rowHtml.push(`<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:3px 6px">${roleLabel[u.role]}</td>
         <td style="padding:3px 6px;font-family:'DM Mono',monospace">${u.id}</td>
-        <td style="padding:3px 6px">${u.name||u.party||'—'}</td>
+        <td style="padding:3px 6px">${escapeHtml(u.name||u.party||'—')}</td>
       </tr>`);
     });
   });
@@ -2250,7 +2266,7 @@ async function renderLoginAccountTable(){
       rowHtml.push(`<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:3px 6px">${roleLabel[u.role]}</td>
         <td style="padding:3px 6px;font-family:'DM Mono',monospace">${u.id}</td>
-        <td style="padding:3px 6px">${u.name||'—'}</td>
+        <td style="padding:3px 6px">${escapeHtml(u.name||'—')}</td>
       </tr>`);
     });
   });
@@ -2386,6 +2402,10 @@ function applyRole(){
   b.textContent={admin:'総合管理者',party_admin:'政党管理者',candidate:'候補者',public:'一般閲覧'}[r];
   b.className='role-badge '+r;
   document.getElementById('user-disp').textContent=currentUser.name;
+
+  // AIチャットはログイン必須（/api/chatが認証必須）。未ログインにはボタンを出さない。
+  const aiChatBtn=document.getElementById('ai-chat-btn');
+  if(aiChatBtn)aiChatBtn.style.display=(r==='public')?'none':'flex';
 
   // PC上部タブ（候補者タブは廃止）
   document.getElementById('tab-list').classList.toggle('hidden',r!=='public');
@@ -2852,10 +2872,10 @@ function openProfilePanel(){
     content.innerHTML=`
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px">
         <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:14px;align-items:center">
-          <span style="color:var(--text-muted);font-size:11px;font-weight:700">氏名</span><span style="font-weight:800;font-size:17px">${u.name||'—'}</span>
-          <span style="color:var(--text-muted);font-size:11px;font-weight:700">政党</span><span style="font-weight:700">${u.party||'—'}</span>
+          <span style="color:var(--text-muted);font-size:11px;font-weight:700">氏名</span><span style="font-weight:800;font-size:17px">${escapeHtml(u.name||'—')}</span>
+          <span style="color:var(--text-muted);font-size:11px;font-weight:700">政党</span><span style="font-weight:700">${escapeHtml(u.party||'—')}</span>
           <span style="color:var(--text-muted);font-size:11px;font-weight:700">選挙区分</span><span>${typeLabel[u.election_type]||'—'}</span>
-          <span style="color:var(--text-muted);font-size:11px;font-weight:700">選挙区</span><span>${u.area||'—'}</span>
+          <span style="color:var(--text-muted);font-size:11px;font-weight:700">選挙区</span><span>${escapeHtml(u.area||'—')}</span>
           ${u.list_order?`<span style="color:var(--text-muted);font-size:11px;font-weight:700">名簿順位</span><span>${u.list_order}位</span>`:''}
         </div>
       </div>
@@ -3081,7 +3101,7 @@ function getHoverHtml(s){
   const rateLine=operationMode==='election'
     ?`<div class="map-hover-row"><span>抽選予約率</span><span class="map-hover-rate" style="color:${rate>=100?'#d55e00':rate>=50?'#e69f00':'#0072b2'}">${rate}%</span></div>`
     :'';
-  return`<div class="map-hover-popup"><b>${s.name}</b>${rateLine}<div class="map-hover-row"><span>確定予約</span><span>${confirmed.length}件</span></div><div class="map-hover-row"><span>抽選待ち</span><span>${pending.length}件</span></div>${myLine}</div>`;
+  return`<div class="map-hover-popup"><b>${escapeHtml(s.name)}</b>${rateLine}<div class="map-hover-row"><span>確定予約</span><span>${confirmed.length}件</span></div><div class="map-hover-row"><span>抽選待ち</span><span>${pending.length}件</span></div>${myLine}</div>`;
 }
 function refreshMarkers(){
   if(!map)return; // mapが初期化前なら何もしない
@@ -3155,10 +3175,10 @@ function refreshMarkers(){
         }
       }
       markers[s.id].unbindTooltip();
-      const ttLabel=isMuted?`<b style="color:#999">${s.name}（非表示中）</b>`:`<b>${s.name}</b>`;
+      const ttLabel=isMuted?`<b style="color:#999">${escapeHtml(s.name)}（非表示中）</b>`:`<b>${escapeHtml(s.name)}</b>`;
       markers[s.id].bindTooltip(ttLabel,{direction:'top',permanent:!useCluster,className:'pref-tooltip',offset:[0,-28]});
     } else {
-      const ttLabel=isMuted?`<b style="color:#999">${s.name}（非表示中）</b>`:`<b>${s.name}</b>`;
+      const ttLabel=isMuted?`<b style="color:#999">${escapeHtml(s.name)}（非表示中）</b>`:`<b>${escapeHtml(s.name)}</b>`;
       const m=L.marker([s.lat,s.lng],{icon:makeIcon(c,mine)})
         .bindTooltip(ttLabel,{direction:'top',permanent:!useCluster,className:'pref-tooltip',offset:[0,-28]});
       if(!isMuted){
@@ -3170,7 +3190,7 @@ function refreshMarkers(){
             this._hoverBound=true;
           }).on('mouseout',function(){
             this.unbindTooltip();
-            this.bindTooltip(`<b>${s.name}</b>`,{direction:'top',permanent:true,className:'pref-tooltip',offset:[0,-28]});
+            this.bindTooltip(`<b>${escapeHtml(s.name)}</b>`,{direction:'top',permanent:true,className:'pref-tooltip',offset:[0,-28]});
             this._hoverBound=false;
           });
         } else {
@@ -3282,7 +3302,7 @@ function openModal(spotId){
       const leftHtml=`<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
         <div style="font-size:16px;font-weight:800;color:var(--text);font-family:'DM Mono',monospace;white-space:nowrap;min-width:54px;text-align:right;flex-shrink:0">${r.time_slot||''}</div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0">
-          <span class="slot-name" style="font-size:14px;${isCancelledSlot?'text-decoration:line-through;color:var(--text-muted)':''}">${r.name}</span>
+          <span class="slot-name" style="font-size:14px;${isCancelledSlot?'text-decoration:line-through;color:var(--text-muted)':''}">${escapeHtml(r.name)}</span>
           ${partyBadge(r.party,true)}
           ${isCancelledSlot?'<span class="status-badge cancelled" style="display:inline-flex">🚫 中止</span>':''}
         </div>
@@ -3483,7 +3503,7 @@ async function loadLotteryLogs(suffix){
               }).join('');
               return `<tr style="border-bottom:1px solid var(--border)">
                 <td style="padding:4px 6px">
-                  <div style="font-weight:700">${s.name}</div>
+                  <div style="font-weight:700">${escapeHtml(s.name)}</div>
                   ${s.party?`<div style="margin-top:2px">${pBadge(s.party)}</div>`:''}
                 </td>
                 ${cells}
@@ -3506,13 +3526,13 @@ async function loadLotteryLogs(suffix){
     const candList=candidates.map(c=>{
       const isWinner=String(c.id)===String(log.winner_id);
       return `<div style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:11px;margin:2px;background:${isWinner?'var(--accent)':'var(--surface)'};color:${isWinner?'#fff':'var(--text-muted)'};border:1px solid var(--border)">
-        ${isWinner?'🏆 ':''}${c.name||c.id}${c.party?` <span style="opacity:.8;font-size:10px">${c.party}</span>`:''}
+        ${isWinner?'🏆 ':''}${escapeHtml(c.name||c.id)}${c.party?` <span style="opacity:.8;font-size:10px">${escapeHtml(c.party)}</span>`:''}
       </div>`;
     }).join('');
     return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;font-size:12px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
         ${isBattle?`<span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 5px;border:1px solid #fde68a">抽選${prefLabel?' ('+prefLabel+')':''}</span>`:'<span style="font-size:10px;background:#d1fae5;color:#065f46;border-radius:6px;padding:1px 5px;border:1px solid #a7f3d0">自動確定</span>'}
-        <span style="font-weight:700">${log.target_date} ${log.time_slot} ／ ${spotName}</span>
+        <span style="font-weight:700">${log.target_date} ${log.time_slot} ／ ${escapeHtml(spotName)}</span>
       </div>
       <div style="margin-bottom:4px">${candList}</div>
       <div style="color:var(--text-muted);font-size:11px">実行日時: ${execDate}</div>
@@ -3561,7 +3581,7 @@ async function refreshReportPanel(){
     const spotName=spot?.name||'不明なスポット';
     const date=new Date(r.created_at).toLocaleDateString('ja-JP');
     return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:4px">${spotName}</div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escapeHtml(spotName)}</div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">現在：${r.current_district||'未設定'}</div>
       <div style="font-size:11px;margin-bottom:2px">→ 報告：<span style="color:var(--accent);font-weight:700">${r.reported_district}</span></div>
       ${r.reporter_name?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">通報者：${r.reporter_name}</div>`:''}
@@ -3617,7 +3637,7 @@ async function refreshReportList(){
     const spotName=spot?.name||'不明なスポット';
     const date=new Date(r.created_at).toLocaleDateString('ja-JP');
     return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:4px">${spotName}</div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px">${escapeHtml(spotName)}</div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">現在：${r.current_district||'未設定'} → 報告：<span style="color:var(--accent);font-weight:700">${r.reported_district}</span></div>
       ${r.reporter_name?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">通報者：${r.reporter_name}</div>`:''}
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${date}</div>
@@ -3776,7 +3796,7 @@ function updateSpotPrefUI(){
       if(spot){
         // 登録済みスロット
         return`<div class="pref-item ${colors[i]}" style="display:flex;justify-content:space-between;align-items:center">
-          <span><b>${label}</b>：${spot.name}</span>
+          <span><b>${label}</b>：${escapeHtml(spot.name)}</span>
           <button type="button" onclick="removePrefByIdx(${i})" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--text-muted);padding:0 4px">✕</button>
         </div>`;
       } else {
@@ -3807,12 +3827,12 @@ function updateMapSpotHighlight(){
       const label=['第1希望','第2希望','第3希望'][idx];
       markers[s.id].unbindTooltip();
       markers[s.id].bindTooltip(
-        `<b style="color:#c8401a">${label}</b><br>${s.name}`,
+        `<b style="color:#c8401a">${label}</b><br>${escapeHtml(s.name)}`,
         {direction:'top',permanent:true,className:'pref-tooltip',offset:[0,-28]}
       ).openTooltip();
     } else {
       markers[s.id].unbindTooltip();
-      markers[s.id].bindTooltip(`<b>${s.name}</b>`,{direction:'top',permanent:true,className:'pref-tooltip',offset:[0,-28]});
+      markers[s.id].bindTooltip(`<b>${escapeHtml(s.name)}</b>`,{direction:'top',permanent:true,className:'pref-tooltip',offset:[0,-28]});
     }
   });
 }
@@ -3912,7 +3932,7 @@ async function candidateReserve(){
     const msg=document.getElementById('nearby-conflict-msg');
     if(msg){
       msg.innerHTML='以下の場所（半径200m以内）に同日同時間帯の抽選予約があります：<br><br>'+
-        conflicts.map(c=>`・<b>${c.spotName}</b>（${c.candName}／${c.party}）`).join('<br>');
+        conflicts.map(c=>`・<b>${escapeHtml(c.spotName)}</b>（${escapeHtml(c.candName)}／${escapeHtml(c.party)}）`).join('<br>');
     }
     const proceedBtn=document.getElementById('nearby-conflict-proceed-btn');
     if(proceedBtn){
@@ -4259,7 +4279,7 @@ async function runLottery(){
     for(const date of pendingDates){
       const res=await fetch('/api/lottery',{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:{'Content-Type':'application/json', ...(await authHeader())},
         body:JSON.stringify({target_date:date})
       });
       const data=await res.json();
@@ -4302,9 +4322,9 @@ function renderLotteryTable(){
       <tbody>
         ${sorted.length===0?'<tr><td colspan="7" style="padding:12px;color:var(--text-muted);text-align:center">処理なし</td></tr>':
         sorted.map(r=>`<tr>
-          <td><b>${r.name}</b></td>
+          <td><b>${escapeHtml(r.name)}</b></td>
           <td>${partyBadge(r.party,true)}</td>
-          <td style="font-size:11px">${r.spotName}</td>
+          <td style="font-size:11px">${escapeHtml(r.spotName)}</td>
           <td style="font-size:11px">${r.date?formatDate(r.date):''}</td>
           <td style="font-family:'DM Mono',monospace;font-size:11px">${r.timeSlot||'—'}</td>
           <td>${r.pref?`<span class="pref-tag ${r.pref==='第1希望'?'t1':r.pref==='第2希望'?'t2':r.pref==='第3希望'?'t3':''}">${r.pref}</span>`:'—'}</td>
@@ -4771,7 +4791,7 @@ async function checkAutoLottery(){
         // バックエンドで抽選実行
         const res=await fetch('/api/lottery',{
           method:'POST',
-          headers:{'Content-Type':'application/json'},
+          headers:{'Content-Type':'application/json', ...(await authHeader())},
           body:JSON.stringify({target_date:s.target_date,schedule_id:s.id})
         });
         const data=await res.json();
@@ -5021,7 +5041,7 @@ function previewCsv(){
     const typeLabel={proportional:'比例',single:'小選挙区',single_double:'小選挙区（重複）'};
     previewEl.innerHTML=`<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--green)">✅ ${csvParsed.length}件 登録可能</div>
       <div style="overflow-x:auto"><table class="data-table"><thead><tr><th>ID</th><th>氏名</th><th>選挙区分</th><th>選挙区</th><th>名簿順位</th></tr></thead><tbody>
-      ${csvParsed.map(r=>`<tr><td><code style="font-size:11px">${r.id}</code></td><td>${r.name}</td><td>${typeLabel[r.election_type]||'—'}</td><td>${r.area||'—'}</td><td style="text-align:center">${r.list_order??'—'}</td></tr>`).join('')}
+      ${csvParsed.map(r=>`<tr><td><code style="font-size:11px">${r.id}</code></td><td>${escapeHtml(r.name)}</td><td>${typeLabel[r.election_type]||'—'}</td><td>${escapeHtml(r.area||'—')}</td><td style="text-align:center">${r.list_order??'—'}</td></tr>`).join('')}
       </tbody></table></div>`;
     importBtn.style.display='';
   };
@@ -5108,7 +5128,7 @@ async function confirmPwReset(){
   if(authTarget?.auth_id){
     await fetch('/api/reset-password',{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json', ...(await authHeader())},
       body:JSON.stringify({auth_id:authTarget.auth_id,new_password:newPw})
     }).catch(()=>{});
   }
@@ -5368,7 +5388,7 @@ function refreshSidebar(){
     const isEnded=speechStatus==='ended';
     const liveBtn=r.stream_url&&!isEnded?`<a href="${r.stream_url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:3px;margin-top:4px;padding:3px 9px;background:var(--red);color:#fff;border-radius:20px;font-size:10px;font-weight:700;text-decoration:none">🔴 LIVE視聴</a>`:'';
     return`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:6px;${isEnded?'opacity:.55':''}">
-      <div style="font-weight:700;font-size:13px">${r.name}</div>
+      <div style="font-weight:700;font-size:13px">${escapeHtml(r.name)}</div>
       ${partyBadge(r.party,true)}
       <div style="font-family:'DM Mono',monospace;font-size:13px;color:var(--accent);font-weight:700">${r.time_slot||''}</div>
       <div style="font-size:13px;font-weight:700;color:var(--text-muted)">${formatDate(r.date)}</div>
@@ -5401,8 +5421,8 @@ function refreshListView(){
     const todayStr2=new Date().toLocaleDateString('sv-SE');
     const isToday=r.date===todayStr2;
     return`<div class="list-card ${isToday&&speechStatus!=='ended'?'today-highlight':''}" style="${speechStatus==='ended'?'opacity:.6':''}">
-      <div><div class="list-candidate">${r.name}${makeAreaBadge(u)}</div>${partyBadge(r.party)}
-      <div class="list-meta">📍 ${s.name}</div>
+      <div><div class="list-candidate">${escapeHtml(r.name)}${makeAreaBadge(u)}</div>${partyBadge(r.party)}
+      <div class="list-meta">📍 ${escapeHtml(s.name)}</div>
       ${statusBadge}
       ${liveBtn}</div>
       <div><div class="list-time">${r.time_slot}</div><div class="list-date">${formatDate(r.date)}</div></div>
@@ -5591,7 +5611,7 @@ async function refreshAdminView(){
       mutedEl.innerHTML=muted.map(s=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px">
           <div>
-            <div style="font-weight:700;font-size:13px">${s.name}</div>
+            <div style="font-weight:700;font-size:13px">${escapeHtml(s.name)}</div>
             <div style="font-size:11px;color:var(--text-muted)">${s.description?s.description.slice(0,40)+'…':''}</div>
           </div>
           <button class="btn btn-primary" style="font-size:11px;padding:4px 10px;white-space:nowrap;flex-shrink:0;margin-left:8px" onclick="restoreSpot('${s.id}')">再表示</button>
@@ -5618,7 +5638,7 @@ async function refreshAdminView(){
     refreshLotteryTargetsPreview(lotteryTiming);
   }
   refreshManualLotteryDates();
-  const pw=u=>`<button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="resetPassword('${u.id}','${u.name}')">🔑 PW変更</button>`;
+  const pw=u=>`<button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="resetPassword('${jsAttr(u.id)}','${jsAttr(u.name)}')">🔑 PW変更</button>`;
   const cd=u=>`<code style="font-size:11px;font-family:'DM Mono',monospace">${u.id}</code>`;
 
   const partyAdmins=allUsers.filter(u=>u.role==='party_admin');
@@ -5671,7 +5691,7 @@ async function refreshAdminView(){
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 12px;margin-bottom:5px">
           <div style="margin-bottom:8px">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
-              <div style="font-weight:700;font-size:14px;flex:1;min-width:0">${u.name}</div>
+              <div style="font-weight:700;font-size:14px;flex:1;min-width:0">${escapeHtml(u.name)}</div>
               <span class="status-badge ${u.active?'empty':'off'}" style="flex-shrink:0">${u.active?'有効':'無効'}</span>
             </div>
             <div style="margin-top:4px">${makeAreaBadge(u,true)}</div>
@@ -5688,7 +5708,7 @@ async function refreshAdminView(){
       const renderAdminCandRow=(u)=>`<tr>
         <td style="word-break:break-all"><code style="font-size:11px;font-family:'DM Mono',monospace">${u.id}</code></td>
         <td>
-          <div style="font-weight:700">${u.name}</div>
+          <div style="font-weight:700">${escapeHtml(u.name)}</div>
           <div style="margin-top:3px">${makeAreaBadge(u,true)}</div>
         </td>
         <td style="text-align:center;font-size:12px">${(u.election_type==='proportional'||u.election_type==='single_double')?(u.list_order??'—'):'—'}</td>
@@ -5779,7 +5799,7 @@ async function refreshAdminView(){
     ?pending.map(r=>{
         const spots=(r.spot_prefs||[]).map((sid,i)=>`第${i+1}: ${allSpots.find(s=>s.id===sid)?.name||'?'}`).join('、');
         return`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:6px">
-          <div style="font-weight:700;font-size:13px">${r.name} ${partyBadge(r.party,true)}</div>
+          <div style="font-weight:700;font-size:13px">${escapeHtml(r.name)} ${partyBadge(r.party,true)}</div>
           <div style="font-size:12px;color:var(--text-muted);margin:4px 0">${formatDate(r.date)} ${r.time_slot||''}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${spots}</div>
           <div style="display:flex;gap:6px"><button class="btn btn-danger" style="flex:1;font-size:12px;padding:6px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id},${JSON.stringify(r.spot_prefs||[])})" style="padding:6px 10px;font-size:12px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺 MAP →第1希望</button>`:''}</div>
@@ -5787,7 +5807,7 @@ async function refreshAdminView(){
     :`<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>候補者</th><th>政党</th><th>日付</th><th>時間帯</th><th>希望場所</th><th>操作</th></tr></thead><tbody>
     ${pending.map(r=>{
       const spots=(r.spot_prefs||[]).map((sid,i)=>`第${i+1}: ${allSpots.find(s=>s.id===sid)?.name||'?'}`).join(' / ');
-      return`<tr><td>${r.name}</td><td>${partyBadge(r.party,true)}</td><td>${formatDate(r.date)}</td><td>${r.time_slot||''}</td><td style="font-size:11px">${spots}</td>
+      return`<tr><td>${escapeHtml(r.name)}</td><td>${partyBadge(r.party,true)}</td><td>${formatDate(r.date)}</td><td>${r.time_slot||''}</td><td style="font-size:11px">${spots}</td>
       <td style="white-space:nowrap"><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id},${JSON.stringify(r.spot_prefs||[])})" style="margin-left:4px;padding:3px 8px;font-size:11px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺</button>`:''}</td></tr>`;}).join('')}
     </tbody></table></div>`;
 
@@ -5817,7 +5837,7 @@ async function refreshPartyAdminView(){
   renderPartyColorPicker();
   document.getElementById('party-name-disp').textContent=`${myParty} の候補者・予約を管理します`;
   const myCands=sortCandidates(allUsers.filter(u=>u.role==='candidate'&&u.party===myParty));
-  const pw=u=>`<button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="resetPassword('${u.id}','${u.name}')">🔑 PW変更</button>`;
+  const pw=u=>`<button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="resetPassword('${jsAttr(u.id)}','${jsAttr(u.name)}')">🔑 PW変更</button>`;
 
   const tableWrap=document.getElementById('party-users-table-wrap');
   const cards=document.getElementById('party-users-cards');
@@ -5849,7 +5869,7 @@ async function refreshPartyAdminView(){
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 12px;margin-bottom:5px">
         <div style="margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
-            <div style="font-weight:700;font-size:14px;flex:1;min-width:0;overflow-wrap:break-word">${u.name}</div>
+            <div style="font-weight:700;font-size:14px;flex:1;min-width:0;overflow-wrap:break-word">${escapeHtml(u.name)}</div>
             <span class="status-badge ${u.active?'empty':'off'}" style="flex-shrink:0">${u.active?'有効':'無効'}</span>
           </div>
           <div style="margin-top:4px">${makeAreaBadge(u,true)}</div>
@@ -5867,7 +5887,7 @@ async function refreshPartyAdminView(){
       <td style="word-break:break-all"><code style="font-size:11px;font-family:'DM Mono',monospace">${u.id}</code></td>
 
       <td>
-        <div style="font-weight:700">${u.name}</div>
+        <div style="font-weight:700">${escapeHtml(u.name)}</div>
         <div style="margin-top:3px">${makeAreaBadge(u,true)}</div>
       </td>
       <td style="text-align:center;font-size:12px">${(u.election_type==='proportional'||u.election_type==='single_double')?(u.list_order??'—'):'—'}</td>
@@ -5975,7 +5995,7 @@ async function refreshPartyAdminView(){
             :`<span class="status-badge pending" style="font-size:10px">抽選待ち</span>`;
           return`<tr style="${isEnded?'opacity:.55':''}">
             <td style="font-family:'DM Mono',monospace;font-size:12px;white-space:nowrap;color:var(--accent);font-weight:700">${r.time_slot||'—'}</td>
-            <td style="font-size:12px">${spotName}</td>
+            <td style="font-size:12px">${escapeHtml(spotName)}</td>
             <td>${statusBadge}</td>
             <td><button onclick="jumpToSpot('${isConfirmed?r.assigned_spot_id:r.spot_prefs&&r.spot_prefs[0]}')" style="padding:2px 6px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer;white-space:nowrap">🗺 MAP</button></td>
           </tr>`;
@@ -6261,7 +6281,7 @@ function partyBadge(party,small=false){
   if(!party)return'';
   const c=getPartyColor(party);
   const fs=small?'10px':'11px';
-  return`<span data-party-badge="${party}" data-party-small="${small?'1':'0'}" style="display:inline-block;font-size:${fs};background:${c.bg};color:${c.color};border:1px solid ${c.border};padding:${small?'1px 8px':'2px 10px'};border-radius:20px;font-weight:700;white-space:nowrap">${party}</span>`;
+  return`<span data-party-badge="${escapeHtml(party)}" data-party-small="${small?'1':'0'}" style="display:inline-block;font-size:${fs};background:${c.bg};color:${c.color};border:1px solid ${c.border};padding:${small?'1px 8px':'2px 10px'};border-radius:20px;font-weight:700;white-space:nowrap">${escapeHtml(party)}</span>`;
 }
 function makeAreaBadge(u,small=false){
   if(!u||!u.election_type)return'';
@@ -6290,13 +6310,13 @@ function refreshCandidateView(){
     profileEl.innerHTML=`
       <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px;align-items:center">
         <span style="color:var(--text-muted);font-size:11px;font-weight:700">氏名</span>
-        <span style="font-weight:700;font-size:18px">${u.name||'—'}</span>
+        <span style="font-weight:700;font-size:18px">${escapeHtml(u.name||'—')}</span>
         <span style="color:var(--text-muted);font-size:11px;font-weight:700">政党</span>
         <span>${u.party?partyBadge(u.party):'—'}</span>
         <span style="color:var(--text-muted);font-size:11px;font-weight:700">選挙区分</span>
         <span>${typeLabel[u.election_type]||'—'}</span>
         <span style="color:var(--text-muted);font-size:11px;font-weight:700">選挙区</span>
-        <span>${u.area?`<span style="display:inline-block;background:var(--accent-light);color:var(--grad1);border:1px solid var(--accent-border);border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700">${u.area}</span>`:'—'}</span>
+        <span>${u.area?`<span style="display:inline-block;background:var(--accent-light);color:var(--grad1);border:1px solid var(--accent-border);border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700">${escapeHtml(u.area)}</span>`:'—'}</span>
       </div>`;
   }
 
@@ -6370,7 +6390,7 @@ function refreshCandidateView(){
         const opacity = (!isAdded && spotPrefOrder.length >= 3) ? '0.5' : '1';
         return `<button type="button" data-spot-id="${s.id}" onclick="addSpotToPrefFromList('${s.id}')"
           style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:${bg};border:1px solid ${border};border-radius:var(--radius-sm);cursor:pointer;font-size:12px;text-align:left;width:100%;opacity:${opacity};transition:all .2s">
-          <span style="font-weight:700;color:var(--text)">${s.name}</span>
+          <span style="font-weight:700;color:var(--text)">${escapeHtml(s.name)}</span>
           <span class="spot-add-label" style="font-size:10px;color:var(--accent);flex-shrink:0;margin-left:8px;font-weight:700">${label}</span>
         </button>`;
       }).join('');
@@ -6868,7 +6888,7 @@ window.addEventListener('DOMContentLoaded',initApp);
 
 <!-- AIチャットサポート -->
 <style>
-#ai-chat-btn{position:fixed;bottom:32px;right:12px;z-index:1000;width:48px;height:48px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:22px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;transition:transform .2s}
+#ai-chat-btn{position:fixed;bottom:32px;right:12px;z-index:1000;width:48px;height:48px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:22px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.25);display:none;align-items:center;justify-content:center;transition:transform .2s}
 #ai-chat-btn:active{transform:scale(.92)}
 #ai-chat-badge{position:absolute;top:-2px;right:-2px;background:#e53e3e;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center}
 #ai-chat-panel{position:fixed;bottom:0;right:0;width:360px;max-width:100vw;height:50vh;max-height:480px;background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;z-index:1001;display:none;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.15)}
@@ -7030,7 +7050,7 @@ async function sendAiMessage(){
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', ...(await authHeader())},
       body: JSON.stringify({
         system: systemPrompt,
         messages: _aiChatHistory

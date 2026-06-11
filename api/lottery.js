@@ -1,3 +1,5 @@
+import { authenticate } from './_auth.js';
+
 export const config = { maxDuration: 30 };
 
 export default async function handler(req, res) {
@@ -9,14 +11,45 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server configuration error' });
   }
 
-  const { target_date, schedule_id } = req.body;
+  const { target_date, schedule_id } = req.body || {};
   if (!target_date) return res.status(400).json({ error: 'target_date is required' });
+  // 入力検証：日付はYYYY-MM-DD固定（PostgRESTフィルタへの注入を防ぐ）
+  if (typeof target_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(target_date)) {
+    return res.status(400).json({ error: 'invalid target_date' });
+  }
+  if (schedule_id != null && !/^[0-9a-fA-F-]{1,40}$/.test(String(schedule_id))) {
+    return res.status(400).json({ error: 'invalid schedule_id' });
+  }
 
   const headers = {
     'Content-Type': 'application/json',
     'apikey': SUPABASE_SERVICE_KEY,
     'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
   };
+
+  // 認証：抽選は破壊的処理（落選予約を削除）なので必ずログインを要求する
+  const caller = await authenticate(req, SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  if (!caller) return res.status(401).json({ error: 'Unauthorized' });
+
+  if (schedule_id == null) {
+    // 手動実行は総合管理者のみ
+    if (caller.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  } else {
+    // 自動実行：DB上に正当なスケジュールが存在し、実行時刻を過ぎている場合のみ許可
+    // （任意ユーザーのブラウザのタイマーから発火するため、ここで正当性を担保する）
+    const sr = await fetch(
+      `${SUPABASE_URL}/rest/v1/lottery_schedules?id=eq.${encodeURIComponent(String(schedule_id))}&select=id,target_date,status,exec_datetime`,
+      { headers }
+    );
+    const srows = sr.ok ? await sr.json() : [];
+    const sched = Array.isArray(srows) ? srows[0] : null;
+    if (!sched) return res.status(404).json({ error: 'schedule not found' });
+    if (sched.status === 'done') return res.status(409).json({ error: 'already executed' });
+    if (sched.target_date !== target_date) return res.status(400).json({ error: 'target_date mismatch' });
+    if (sched.exec_datetime && new Date(sched.exec_datetime) > new Date()) {
+      return res.status(425).json({ error: 'schedule not due yet' });
+    }
+  }
 
   async function sbGet(path) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers });

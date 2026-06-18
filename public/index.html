@@ -4783,30 +4783,42 @@ async function checkElectionPeriodExpiry(){
   }
 }
 
+let _autoLotteryRunning=false;
 async function checkAutoLottery(){
-  const now=new Date();
-  for(const s of lotterySchedules.filter(x=>x.status==='waiting')){
-    if(now>=new Date(s.exec_datetime)){
-      try{
-        // バックエンドで抽選実行
-        const res=await fetch('/api/lottery',{
-          method:'POST',
-          headers:{'Content-Type':'application/json', ...(await authHeader())},
-          body:JSON.stringify({target_date:s.target_date,schedule_id:s.id})
-        });
-        const data=await res.json();
-        if(!res.ok)throw new Error(data.error||'抽選APIエラー');
-        // ローカルデータを再取得
-        const{data:resData}=await sb.from('reservations').select('*').order('created_at',{ascending:false});
-        allReservations=resData||[];
-        s.status='done';
-        refreshAll();
-        showToast(`🎲 ${s.target_date} の自動抽選を実行しました（当選:${data.winners}件）`,'success');
-      }catch(e){
-        console.error('抽選エラー',e);
-        showToast(`抽選でエラーが発生しました: ${e.message}`,'error');
+  if(_autoLotteryRunning)return;          // 多重発火ガード（ログイン直後＋1分タイマーの二重実行を防ぐ）
+  _autoLotteryRunning=true;
+  try{
+    const now=new Date();
+    for(const s of lotterySchedules.filter(x=>x.status==='waiting')){
+      if(now>=new Date(s.exec_datetime)){
+        s.status='processing';            // ローカルで先押しし、同一スケジュールの二重実行を防ぐ
+        try{
+          // バックエンドで抽選実行
+          const res=await fetch('/api/lottery',{
+            method:'POST',
+            headers:{'Content-Type':'application/json', ...(await authHeader())},
+            body:JSON.stringify({target_date:s.target_date,schedule_id:s.id})
+          });
+          const data=await res.json();
+          if(!res.ok)throw new Error(data.error||'抽選APIエラー');
+          // ローカルデータを再取得
+          const{data:resData}=await sb.from('reservations').select('*').order('created_at',{ascending:false});
+          allReservations=resData||[];
+          s.status='done';
+          refreshAll();
+          // 「抽選対象なし」応答(winners無し)のときは祝賀トーストを出さない＝undefined表示を防ぐ
+          if(!data.message){
+            showToast(`🎲 ${s.target_date} の自動抽選を実行しました（当選:${data.winners??0}件）`,'success');
+          }
+        }catch(e){
+          s.status='waiting';             // 失敗時はwaitingに戻して次回チェックで再試行
+          console.error('抽選エラー',e);
+          showToast(`抽選でエラーが発生しました: ${e.message}`,'error');
+        }
       }
     }
+  }finally{
+    _autoLotteryRunning=false;
   }
 }
 

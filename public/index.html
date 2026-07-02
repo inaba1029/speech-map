@@ -2845,7 +2845,7 @@ function openMyReservationsPanel(){
               ${badge}
               ${delBtn}
               ${isConfirmed&&speechStatus!=='ended'?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="cancelReservation(${r.id})">🚫 中止</button>`:''}
-              ${(isConfirmed&&r.assigned_spot_id)?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:(!isConfirmed&&!isCancelled&&r.spot_prefs&&r.spot_prefs[0])?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id},${JSON.stringify(r.spot_prefs||[])})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
+              ${(isConfirmed&&r.assigned_spot_id)?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:(!isConfirmed&&!isCancelled&&r.spot_prefs&&r.spot_prefs[0])?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
             </div>
           </div>
         </div>
@@ -2977,6 +2977,10 @@ function locateMe(){
 // 予約IDごとにクリック回数を管理（pending予約の第1→第2→第3循環用）
 const _mapJumpIndex={};
 function jumpToSpotCycle(resId,spotPrefs){
+  if(!spotPrefs){                          // onclick属性にJSONを埋めず、予約IDからspot_prefsを引く
+    const _r=allReservations.find(x=>String(x.id)===String(resId));
+    spotPrefs=(_r&&_r.spot_prefs)||[];
+  }
   if(!spotPrefs||spotPrefs.length===0)return;
   const validPrefs=spotPrefs.filter(s=>s!=null&&s!==''&&s!=='undefined');
   if(validPrefs.length===0)return;
@@ -5367,7 +5371,7 @@ function refreshCandSidebarResList(){
               ${isCancInline&&!isEnded?`<button class="btn btn-primary" style="padding:3px 8px;font-size:11px" onclick="reserveCancelledSlot('${r.assigned_spot_id}','${r.date}','${r.time_slot||''}',null)">🔄 再予約（先着順）</button>`:''}
               ${isConfirmed&&!isEnded?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="cancelReservation(${r.id})">🚫 中止</button>`:''}
               ${!isConfirmed&&!isCancInline?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteMyRes(${r.id})">削除</button>`:''}
-              ${(isConfirmed&&r.assigned_spot_id)?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:(!isConfirmed&&!isCancInline&&r.spot_prefs&&r.spot_prefs[0])?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id},${JSON.stringify(r.spot_prefs||[])})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
+              ${(isConfirmed&&r.assigned_spot_id)?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:(!isConfirmed&&!isCancInline&&r.spot_prefs&&r.spot_prefs[0])?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
             </div>
           </div>
         </div>
@@ -5814,13 +5818,13 @@ async function refreshAdminView(){
           <div style="font-weight:700;font-size:13px">${escapeHtml(r.name)} ${partyBadge(r.party,true)}</div>
           <div style="font-size:12px;color:var(--text-muted);margin:4px 0">${formatDate(r.date)} ${r.time_slot||''}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${spots}</div>
-          <div style="display:flex;gap:6px"><button class="btn btn-danger" style="flex:1;font-size:12px;padding:6px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id},${JSON.stringify(r.spot_prefs||[])})" style="padding:6px 10px;font-size:12px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺 MAP →第1希望</button>`:''}</div>
+          <div style="display:flex;gap:6px"><button class="btn btn-danger" style="flex:1;font-size:12px;padding:6px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="padding:6px 10px;font-size:12px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺 MAP →第1希望</button>`:''}</div>
         </div>`;}).join('')
     :`<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>候補者</th><th>政党</th><th>日付</th><th>時間帯</th><th>希望場所</th><th>操作</th></tr></thead><tbody>
     ${pending.map(r=>{
       const spots=(r.spot_prefs||[]).map((sid,i)=>`第${i+1}: ${allSpots.find(s=>s.id===sid)?.name||'?'}`).join(' / ');
       return`<tr><td>${escapeHtml(r.name)}</td><td>${partyBadge(r.party,true)}</td><td>${formatDate(r.date)}</td><td>${r.time_slot||''}</td><td style="font-size:11px">${spots}</td>
-      <td style="white-space:nowrap"><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id},${JSON.stringify(r.spot_prefs||[])})" style="margin-left:4px;padding:3px 8px;font-size:11px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺</button>`:''}</td></tr>`;}).join('')}
+      <td style="white-space:nowrap"><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="margin-left:4px;padding:3px 8px;font-size:11px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺</button>`:''}</td></tr>`;}).join('')}
     </tbody></table></div>`;
 
   const waiting=lotterySchedules.filter(s=>s.status==='waiting');
@@ -6493,7 +6497,7 @@ function refreshCandidateView(){
           ${!isConfirmed&&!isCancelled?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteMyRes(${r.id})">削除</button>`:''}
           ${isConfirmed&&!isEnded&&!isCancelled?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="cancelReservation(${r.id})">🚫 中止</button>`:''}
           ${(isConfirmed||isCancelled)&&r.assigned_spot_id?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:''}
-          ${!isConfirmed&&!isCancelled&&r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id},${JSON.stringify(r.spot_prefs||[])})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
+          ${!isConfirmed&&!isCancelled&&r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
           ${isCancelled&&!isEnded&&r.assigned_spot_id?`<button class="btn btn-primary" style="padding:3px 8px;font-size:11px" onclick="reserveCancelledSlot('${r.assigned_spot_id}','${r.date}','${r.time_slot||''}',null)">🔄 再予約（先着順）</button>`:''}
         </div>
       </div>

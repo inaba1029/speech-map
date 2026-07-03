@@ -2116,7 +2116,7 @@ function updateNearbyConflictNotice(){
 }
 
 function isLotteryExpired(dateStr){
-  const nowStr=new Date().toLocaleDateString('sv-SE');
+  const nowStr=todayJst();
   return addDays(dateStr,-lotteryTiming)<=nowStr;
 } // デフォルト2日前
 
@@ -2564,7 +2564,7 @@ function selectTimeSlot(slot, hiddenId, pickerId){
 // 残枠バッジ更新
 // =========================================================
 function updateReserveBtnLabel(date){
-  const nowStr=new Date().toLocaleDateString('sv-SE');
+  const nowStr=todayJst();
   const expired=date&&addDays(date,-lotteryTiming)<=nowStr;
   ['reserve-btn','reserve-btn-sp'].forEach(id=>{
     const btn=document.getElementById(id);
@@ -2640,7 +2640,7 @@ function exportAllCandidatesCsv(){
     u.id,u.name,u.party||'',typeLabel[u.election_type]||'',
     u.area||'',u.list_order??'',u.active?'有効':'無効'
   ]);
-  const today=new Date().toLocaleDateString('sv-SE');
+  const today=todayJst();
   downloadCsv(`候補者一覧_${today}.csv`,rows,
     ['候補者ID','氏名','政党','選挙区分','選挙区','名簿順位','状態']);
   showToast('候補者CSVをダウンロードしました','success');
@@ -2656,7 +2656,7 @@ function exportPartyCandidatesCsv(){
     u.id,u.name,u.party||'',typeLabel[u.election_type]||'',
     u.area||'',u.list_order??'',u.active?'有効':'無効'
   ]);
-  const today=new Date().toLocaleDateString('sv-SE');
+  const today=todayJst();
   downloadCsv(`${currentUser.party}_候補者一覧_${today}.csv`,rows,
     ['候補者ID','氏名','政党','選挙区分','選挙区','名簿順位','状態']);
   showToast('候補者CSVをダウンロードしました','success');
@@ -2674,7 +2674,7 @@ function exportAllReservationsCsv(){
     return[r.cand_id,r.name,r.party,r.date,r.time_slot||'',
       statusLabel[r.status]||r.status,spot,prefs,r.stream_url||''];
   });
-  const today=new Date().toLocaleDateString('sv-SE');
+  const today=todayJst();
   downloadCsv(`予約一覧_${today}.csv`,rows,
     ['候補者ID','氏名','政党','演説日','時間帯','状態','確定場所','希望場所','配信URL']);
   showToast('予約CSVをダウンロードしました','success');
@@ -2687,7 +2687,7 @@ function exportLotteryResultsCsv(){
     r.name,r.party,r.date,r.timeSlot||'',r.spotName,r.pref,
     r.result==='win'?'当選':r.result==='alt'?'当選（代替）':'落選'
   ]);
-  const today=new Date().toLocaleDateString('sv-SE');
+  const today=todayJst();
   downloadCsv(`抽選結果_${today}.csv`,rows,
     ['候補者名','政党','演説日','時間帯','場所','当選希望順','結果']);
   showToast('抽選結果CSVをダウンロードしました','success');
@@ -2845,7 +2845,7 @@ function openMyReservationsPanel(){
               ${badge}
               ${delBtn}
               ${isConfirmed&&speechStatus!=='ended'?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="cancelReservation(${r.id})">🚫 中止</button>`:''}
-              ${(isConfirmed&&r.assigned_spot_id)?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:(!isConfirmed&&!isCancelled&&r.spot_prefs&&r.spot_prefs[0])?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
+              ${(isConfirmed&&r.assigned_spot_id)?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:(!isConfirmed&&!isCancelled&&r.spot_prefs&&r.spot_prefs[0])?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" title="タップで第1→第2→第3希望の地点を順に表示" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
             </div>
           </div>
         </div>
@@ -2974,6 +2974,9 @@ function locateMe(){
   );
 }
 
+// 日付は常に日本時間(JST)で扱う共通ヘルパー。TZ処理の散在による不具合(自動抽選の時刻ズレ等)の再発防止。
+function todayJst(){return new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});}
+
 // 予約IDごとにクリック回数を管理（pending予約の第1→第2→第3循環用）
 const _mapJumpIndex={};
 function jumpToSpotCycle(resId,spotPrefs){
@@ -3061,7 +3064,7 @@ function getColor(spotId){
   if(operationMode!=='election')return'green';
   const sid=String(spotId);
   const start=electionPeriod.start,end=electionPeriod.end;
-  const todayStr=new Date().toLocaleDateString('sv-SE');
+  const todayStr=todayJst();
   let totalSlots=0;
   if(start&&end){
     let cur=start>todayStr?start:todayStr;
@@ -3089,7 +3092,7 @@ function getHoverHtml(s){
   const confirmed=allReservations.filter(r=>r.status==='confirmed'&&String(r.assigned_spot_id)===String(sid)&&getSpeechStatus(r.date,r.time_slot)!=='hidden');
   const pending=allReservations.filter(r=>r.status==='pending'&&r.spot_prefs&&r.spot_prefs.map(String).includes(String(sid)));
   const start=electionPeriod.start,end=electionPeriod.end;
-  const todayStr=new Date().toLocaleDateString('sv-SE');
+  const todayStr=todayJst();
   let totalSlots=0;
   if(start&&end){
     let cur=start>todayStr?start:todayStr;
@@ -3116,7 +3119,7 @@ function refreshMarkers(){
     const isMuted=s.active===false;
     const c=isMuted?'grey':getColor(s.id);
     const sid=String(s.id);
-    const nowStr=new Date().toLocaleDateString('sv-SE');
+    const nowStr=todayJst();
     const nowHour=new Date().getHours();
     // 現実の日時を過ぎていない予約かチェック
     function isFutureRes(r){
@@ -4057,7 +4060,7 @@ function closeTermsModal(){document.getElementById('terms-modal').classList.remo
 document.getElementById('terms-modal').addEventListener('click',e=>{if(e.target===document.getElementById('terms-modal'))closeTermsModal();});
 function closeNearbyConflictModal(){document.getElementById('nearby-conflict-modal').classList.remove('open');}
 async function _doReserveWithPrefs(date,timeSlot,streamUrl,btnId){
-  const nowStr2=new Date().toLocaleDateString('sv-SE');
+  const nowStr2=todayJst();
   const expired=isLotteryExpired(date);
   // 過去の日時チェック
   const now2=new Date();
@@ -4479,7 +4482,7 @@ function addDays(dateStr, n){
 function openReservationModeCalendar(){
   const modal=document.getElementById('reservation-mode-modal');
   if(!modal)return;
-  const todayStr=new Date().toLocaleDateString('sv-SE');
+  const todayStr=todayJst();
   const timing=(typeof lotteryTiming!=='undefined')?lotteryTiming:2;
   // 明日抽選が行われる演説日 = 明日 + timing日
   const tomorrowStr=addDays(todayStr,1);
@@ -4538,7 +4541,7 @@ function dpmShiftMonth(delta){
   dpmRender();
 }
 function dpmRender(){
-  const todayStr=new Date().toLocaleDateString('sv-SE');
+  const todayStr=todayJst();
   const timing=(typeof lotteryTiming!=='undefined')?lotteryTiming:2;
   const nextLotteryTargetStr=addDays(addDays(todayStr,1),timing);
   // 選択可能な期間（旧UIと同じ基準）
@@ -4619,7 +4622,7 @@ function dpmApplyDate(dateStr){
 // タイミング変更プレビュー（選んだ瞬間に表示だけ変える）
 function refreshLotteryTargetsPreview(val){
   const timing=parseInt(val)||2;
-  const todayStr=new Date().toLocaleDateString('sv-SE');
+  const todayStr=todayJst();
   const pendingDates=[...new Set(allReservations.filter(r=>r.status==='pending').map(r=>r.date))].sort();
   const prev=document.getElementById('lottery-timing-preview');
   if(!prev)return;
@@ -4706,7 +4709,7 @@ async function onLotteryTimingChange(val){
 // pendingの全演説日に対して自動でスケジュールを登録
 // 抽選日が過去/当日の場合は即時実行キューに追加（スキップしない）
 async function autoScheduleAll(){
-  const todayStr=new Date().toLocaleDateString('sv-SE');
+  const todayStr=todayJst();
   const nowMs=Date.now();
   const pendingDates=[...new Set(allReservations.filter(r=>r.status==='pending').map(r=>r.date))];
   for(const targetDate of pendingDates){
@@ -4727,7 +4730,7 @@ async function autoScheduleAll(){
 function refreshLotteryTargets(){
   const el=document.getElementById('lottery-target-list');
   if(!el)return;
-  const todayStr=new Date().toLocaleDateString('sv-SE');
+  const todayStr=todayJst();
   const pendingDates=[...new Set(allReservations.filter(r=>r.status==='pending').map(r=>r.date))].sort();
   if(pendingDates.length===0){
     el.innerHTML='<div style="font-size:12px;color:var(--text-muted)">抽選待ちの予約がありません</div>';
@@ -4775,7 +4778,7 @@ async function cancelScheduleFor(targetDate){
 async function checkElectionPeriodExpiry(){
   if(operationMode!=='election')return;
   if(!electionPeriod.end)return;
-  const nowStr=new Date().toLocaleDateString('sv-SE');
+  const nowStr=todayJst();
   if(nowStr>electionPeriod.end){
     operationMode='activity';
     await sb.from('settings').upsert({key:'operation_mode',value:JSON.stringify(operationMode)},{onConflict:'key'});
@@ -4817,7 +4820,7 @@ async function checkAutoLottery(){
         }catch(e){
           s.status='waiting';             // 失敗時はwaitingに戻して次回チェックで再試行
           console.error('抽選エラー',e);
-          showToast(`抽選でエラーが発生しました: ${e.message}`,'error');
+          showToast('抽選処理でエラーが発生しました。時間をおいて再度お試しください。','error');
         }
       }
     }
@@ -5371,7 +5374,7 @@ function refreshCandSidebarResList(){
               ${isCancInline&&!isEnded?`<button class="btn btn-primary" style="padding:3px 8px;font-size:11px" onclick="reserveCancelledSlot('${r.assigned_spot_id}','${r.date}','${r.time_slot||''}',null)">🔄 再予約（先着順）</button>`:''}
               ${isConfirmed&&!isEnded?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="cancelReservation(${r.id})">🚫 中止</button>`:''}
               ${!isConfirmed&&!isCancInline?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteMyRes(${r.id})">削除</button>`:''}
-              ${(isConfirmed&&r.assigned_spot_id)?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:(!isConfirmed&&!isCancInline&&r.spot_prefs&&r.spot_prefs[0])?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
+              ${(isConfirmed&&r.assigned_spot_id)?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:(!isConfirmed&&!isCancInline&&r.spot_prefs&&r.spot_prefs[0])?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" title="タップで第1→第2→第3希望の地点を順に表示" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
             </div>
           </div>
         </div>
@@ -5434,7 +5437,7 @@ function refreshListView(){
       ?`<span class="status-badge ongoing">🟠 実施中</span>`
       :`<span class="status-badge empty">確定</span>`;
     const liveBtn=r.stream_url&&speechStatus!=='ended'?`<a href="${r.stream_url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:4px 10px;background:var(--red);color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-decoration:none">🔴 ライブ視聴</a>`:'';
-    const todayStr2=new Date().toLocaleDateString('sv-SE');
+    const todayStr2=todayJst();
     const isToday=r.date===todayStr2;
     return`<div class="list-card ${isToday&&speechStatus!=='ended'?'today-highlight':''}" style="${speechStatus==='ended'?'opacity:.6':''}">
       <div><div class="list-candidate">${escapeHtml(r.name)}${makeAreaBadge(u)}</div>${partyBadge(r.party)}
@@ -5635,7 +5638,7 @@ async function refreshAdminView(){
     }
   }
   // 初期表示時の時間帯無効化
-  const initDate=document.getElementById('ci-date')?.value||document.getElementById('ci-date-sp-pc')?.value||new Date().toLocaleDateString('sv-SE');
+  const initDate=document.getElementById('ci-date')?.value||document.getElementById('ci-date-sp-pc')?.value||todayJst();
   setTimeout(()=>updateTimeSlotAvailability(initDate),100);
   if(!isMobile()){
     const _adStart=document.getElementById('ad-start');
@@ -5818,13 +5821,13 @@ async function refreshAdminView(){
           <div style="font-weight:700;font-size:13px">${escapeHtml(r.name)} ${partyBadge(r.party,true)}</div>
           <div style="font-size:12px;color:var(--text-muted);margin:4px 0">${formatDate(r.date)} ${r.time_slot||''}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${spots}</div>
-          <div style="display:flex;gap:6px"><button class="btn btn-danger" style="flex:1;font-size:12px;padding:6px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="padding:6px 10px;font-size:12px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺 MAP →第1希望</button>`:''}</div>
+          <div style="display:flex;gap:6px"><button class="btn btn-danger" style="flex:1;font-size:12px;padding:6px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" title="タップで第1→第2→第3希望の地点を順に表示" style="padding:6px 10px;font-size:12px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺 MAP →第1希望</button>`:''}</div>
         </div>`;}).join('')
     :`<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>候補者</th><th>政党</th><th>日付</th><th>時間帯</th><th>希望場所</th><th>操作</th></tr></thead><tbody>
     ${pending.map(r=>{
       const spots=(r.spot_prefs||[]).map((sid,i)=>`第${i+1}: ${allSpots.find(s=>s.id===sid)?.name||'?'}`).join(' / ');
       return`<tr><td>${escapeHtml(r.name)}</td><td>${partyBadge(r.party,true)}</td><td>${formatDate(r.date)}</td><td>${r.time_slot||''}</td><td style="font-size:11px">${spots}</td>
-      <td style="white-space:nowrap"><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="margin-left:4px;padding:3px 8px;font-size:11px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺</button>`:''}</td></tr>`;}).join('')}
+      <td style="white-space:nowrap"><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteRes(${r.id})">削除</button>${r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" title="タップで第1→第2→第3希望の地点を順に表示" style="margin-left:4px;padding:3px 8px;font-size:11px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);cursor:pointer">🗺</button>`:''}</td></tr>`;}).join('')}
     </tbody></table></div>`;
 
   const waiting=lotterySchedules.filter(s=>s.status==='waiting');
@@ -6343,7 +6346,7 @@ function refreshCandidateView(){
   applyDateInputMode();
 
   // 抽選日が未来の演説日のみ選択可能
-  const nowStr=new Date().toLocaleDateString('sv-SE');
+  const nowStr=todayJst();
   // 政治活動モード時は選挙期間制限なし（今日から1年間）
   const isActivityMode=operationMode==='activity';
   const periodStart=isActivityMode?nowStr:(electionPeriod.start||nowStr);
@@ -6444,7 +6447,7 @@ function refreshCandidateView(){
   const lmb=document.getElementById('lottery-map-banner');
   if(lmb){
     // 明日の0:00に確定する演説日を計算（DBの予約有無に関係なく常時表示）
-    const tomorrowStr=addDays(new Date().toLocaleDateString('sv-SE'),1);
+    const tomorrowStr=addDays(todayJst(),1);
     const targetStr=addDays(tomorrowStr,lotteryTiming);
     lmb.style.display='';
     lmb.innerHTML=`🎲 明日確定する予約日：<b>${formatDate(targetStr)}</b><br><span style="font-size:10px;opacity:.85">※抽選がまだ行われていない日付は【抽選待ち】、抽選が終了した日付は【先着予約】となります</span><br><span onclick="openReservationModeCalendar()" style="cursor:pointer;text-decoration:underline;font-size:10px;opacity:.85">予約ルールを見る</span>`;
@@ -6497,7 +6500,7 @@ function refreshCandidateView(){
           ${!isConfirmed&&!isCancelled?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="deleteMyRes(${r.id})">削除</button>`:''}
           ${isConfirmed&&!isEnded&&!isCancelled?`<button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="cancelReservation(${r.id})">🚫 中止</button>`:''}
           ${(isConfirmed||isCancelled)&&r.assigned_spot_id?`<button onclick="jumpToSpot('${r.assigned_spot_id}')" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP</button>`:''}
-          ${!isConfirmed&&!isCancelled&&r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
+          ${!isConfirmed&&!isCancelled&&r.spot_prefs&&r.spot_prefs[0]?`<button data-res-jump="${r.id}" onclick="jumpToSpotCycle(${r.id})" title="タップで第1→第2→第3希望の地点を順に表示" style="padding:2px 7px;font-size:10px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">🗺 MAP →第1希望</button>`:''}
           ${isCancelled&&!isEnded&&r.assigned_spot_id?`<button class="btn btn-primary" style="padding:3px 8px;font-size:11px" onclick="reserveCancelledSlot('${r.assigned_spot_id}','${r.date}','${r.time_slot||''}',null)">🔄 再予約（先着順）</button>`:''}
         </div>
       </div>
